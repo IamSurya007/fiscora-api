@@ -132,6 +132,10 @@ export class ExpensesService {
       whereConditions.source = query.source;
     }
 
+    if (query.needsReview) {
+      whereConditions.needsReview = true;
+    }
+
     // A category id matches expenses in that category or subcategory.
     const categoryVariants: any[] = query.categoryId
       ? [{ categoryId: query.categoryId }, { subcategoryId: query.categoryId }]
@@ -211,6 +215,9 @@ export class ExpensesService {
       expense.transferAccountId = await this.validateTransferTarget(userId, expense.accountId, dto.transferAccountId);
       if (expense.transferAccountId) Object.assign(expense, TRANSFER_CATEGORY);
     }
+    if (dto.needsReview !== undefined) expense.needsReview = dto.needsReview;
+    // Editing a captured transaction is reviewing it.
+    else if (expense.needsReview) expense.needsReview = false;
     if (dto.note !== undefined) expense.note = dto.note;
     if (dto.date !== undefined) expense.date = new Date(dto.date);
     if (dto.method !== undefined) expense.method = dto.method;

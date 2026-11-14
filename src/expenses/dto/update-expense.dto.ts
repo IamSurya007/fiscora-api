@@ -13,6 +13,11 @@ export class UpdateExpenseDto {
   @IsBoolean()
   isCredit?: boolean;
 
+  /** false once the user has confirmed an auto-captured transaction. */
+  @IsOptional()
+  @IsBoolean()
+  needsReview?: boolean;
+
   /** Set for a transfer between the user's own accounts: the account receiving the money. */
   @IsOptional()
   @IsString()

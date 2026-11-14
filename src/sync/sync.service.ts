@@ -99,6 +99,7 @@ export class SyncService {
           merchant: payload.merchant || null,
           accountId: payload.accountId || 'default_bank',
           transferAccountId: payload.transferAccountId || null,
+          needsReview: Boolean(payload.needsReview),
           isCountedAsSpend,
           createdAt: payload.createdAt ? new Date(payload.createdAt) : undefined,
         };
@@ -199,6 +200,7 @@ export class SyncService {
           merchant: record.merchant || '',
           accountId: record.accountId || 'default_bank',
           transferAccountId: record.transferAccountId || '',
+          needsReview: Boolean(record.needsReview),
           isCountedAsSpend: record.isCountedAsSpend ?? true,
           createdAt: iso(record.createdAt),
         };

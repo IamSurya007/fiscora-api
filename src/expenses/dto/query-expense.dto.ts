@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsString, Matches, IsInt, Min, Max } from 'class-validator';
+import { IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString, Matches, IsInt, Min, Max } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ExpenseSource } from '../../database/enums';
 
@@ -21,6 +21,12 @@ export class QueryExpenseDto {
   @IsOptional()
   @IsEnum(ExpenseSource)
   source?: ExpenseSource;
+
+  /** true: only auto-captured transactions still waiting for review. */
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  needsReview?: boolean;
 
   @IsOptional()
   @Transform(({ value }) => parseInt(value, 10))

@@ -72,6 +72,10 @@ export class Expense {
   @Column({ type: 'boolean', default: true })
   isCountedAsSpend: boolean;
 
+  /** Auto-captured (e.g. from SMS) and not yet confirmed by the user. */
+  @Column({ type: 'boolean', default: false })
+  needsReview: boolean;
+
   @Column({ type: 'varchar', nullable: true })
   @Index()
   clientId: string | null;
