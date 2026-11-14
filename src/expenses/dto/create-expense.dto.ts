@@ -7,6 +7,11 @@ export class CreateExpenseDto {
   @Min(0.01)
   amount: number;
 
+  /** Money coming in (income, refund). `amount` stays positive; it is stored negated. */
+  @IsOptional()
+  @IsBoolean()
+  isCredit?: boolean;
+
   @IsString()
   @IsNotEmpty()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))

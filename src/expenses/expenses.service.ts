@@ -69,8 +69,10 @@ export class ExpensesService {
       ? { categoryId: dto.categoryId, subcategoryId: dto.subcategoryId ?? null }
       : resolveLegacyCategory(dto.category, false);
 
+    const { isCredit, ...fields } = dto;
     const expense = this.expensesRepository.create({
-      ...dto,
+      ...fields,
+      amount: isCredit ? -dto.amount : dto.amount,
       categoryId: ids.categoryId,
       subcategoryId: ids.subcategoryId,
       userId,
@@ -80,6 +82,7 @@ export class ExpensesService {
     });
 
     const savedExpense = await this.expensesRepository.save(expense);
+    await this.adjustAccountBalance(userId, savedExpense.accountId, savedExpense.amount);
 
     // Trigger budget check asynchronously
     this.checkBudgetAlert(userId, savedExpense).catch(err => {
@@ -160,12 +163,17 @@ export class ExpensesService {
 
   async update(userId: string, id: string, dto: UpdateExpenseDto): Promise<Expense> {
     const expense = await this.findOne(userId, id);
+    const before = { accountId: expense.accountId, amount: expense.amount };
 
     if (dto.accountId !== undefined) {
       expense.accountId = await this.validateAndGetAccountId(userId, dto.accountId);
     }
     if (dto.isCountedAsSpend !== undefined) expense.isCountedAsSpend = dto.isCountedAsSpend;
-    if (dto.amount !== undefined) expense.amount = dto.amount;
+    if (dto.amount !== undefined || dto.isCredit !== undefined) {
+      const magnitude = dto.amount ?? Math.abs(expense.amount);
+      const credit = dto.isCredit ?? expense.amount < 0;
+      expense.amount = credit ? -magnitude : magnitude;
+    }
     if (dto.category !== undefined) expense.category = dto.category;
     if (dto.categoryId !== undefined) {
       expense.categoryId = dto.categoryId;
@@ -185,6 +193,10 @@ export class ExpensesService {
     expense.version = (expense.version || 1) + 1;
 
     const saved = await this.expensesRepository.save(expense);
+    if (before.accountId !== saved.accountId || before.amount !== saved.amount) {
+      await this.adjustAccountBalance(userId, before.accountId, -before.amount);
+      await this.adjustAccountBalance(userId, saved.accountId, saved.amount);
+    }
 
     if (dto.category !== undefined || dto.categoryId !== undefined || dto.amount !== undefined || dto.date !== undefined || dto.isCountedAsSpend !== undefined) {
       this.checkBudgetAlert(userId, saved).catch(err => {
@@ -201,6 +213,28 @@ export class ExpensesService {
     expense.isDeleted = true;
     expense.version = (expense.version || 1) + 1;
     await this.expensesRepository.save(expense);
+    await this.adjustAccountBalance(userId, expense.accountId, -expense.amount);
+  }
+
+  /**
+   * Web-entered expenses used to leave account balances untouched. Mirrors the
+   * mobile rule: a debit lowers a bank/cash/wallet balance and raises a credit
+   * card's outstanding; credits (negative amounts) do the reverse. Bumping the
+   * version lets mobile pick the new balance up on its next pull.
+   */
+  private async adjustAccountBalance(userId: string, accountId: string | null, amount: number) {
+    if (!accountId || !amount) return;
+    const account = await this.accountsRepository.findOne({
+      where: [
+        { id: accountId, userId, isDeleted: false },
+        { clientId: accountId, userId, isDeleted: false },
+      ],
+    });
+    if (!account) return;
+    const delta = account.type === AccountType.CREDIT_CARD ? amount : -amount;
+    account.currentBalance = Math.round((account.currentBalance + delta) * 100) / 100;
+    account.version = (account.version || 1) + 1;
+    await this.accountsRepository.save(account);
   }
 
   async getSummary(userId: string, month?: string) {
