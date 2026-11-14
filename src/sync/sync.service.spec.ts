@@ -26,6 +26,8 @@ const queryBuilder = () => {
 
 const mockRepository = () => ({
   findOne: jest.fn(),
+  find: jest.fn().mockResolvedValue([]),
+  update: jest.fn().mockResolvedValue(undefined),
   create: jest.fn(entity => ({ id: 'mock-id', ...entity, updatedAt: new Date() })),
   save: jest.fn(entity => ({ ...entity, id: entity.id || 'mock-id', updatedAt: new Date() })),
   createQueryBuilder: jest.fn(queryBuilder),
@@ -152,7 +154,7 @@ describe('SyncService', () => {
         merchant: 'Restaurant',
         accountId: 'default_bank',
         isCountedAsSpend: true,
-        version: 1,
+        version: 2, // edited on the server after it was created
         isDeleted: false,
         updatedAt: new Date(),
       };
@@ -185,6 +187,55 @@ describe('SyncService', () => {
       expect(result[0].serverId).toBe('server-id-1');
       expect(result[0].isDeleted).toBe(false);
       expect(result[0].serverPayload.amount).toBe(200);
+      expect(expenseRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('keeps an edit made before the create was acknowledged (server copy never changed)', async () => {
+      expenseRepo.findOne.mockResolvedValue({
+        id: 'server-id-1', clientId: 'client-uuid-1', userId: 'user-1', amount: 200, category: 'Food',
+        date: new Date('2026-07-18T20:30:00.000Z'), method: 'UPI', source: 'MANUAL', accountId: 'default_bank',
+        isCountedAsSpend: true, version: 1, isDeleted: false, updatedAt: new Date(),
+      });
+      const result = await service.processBatch('user-1', 'expense', [
+        { clientId: 'client-uuid-1', operationType: 'CREATE', clientVersion: 1,
+          payload: { amount: 100, category: 'Food', date: '2026-07-18T20:30:00.000Z', accountId: 'default_bank' } },
+      ]);
+      expect(result[0].status).toBe('applied');
+      expect(expenseRepo.save).toHaveBeenCalledWith(expect.objectContaining({ amount: 100, version: 2 }));
+    });
+
+    it('flags a conflict when the server changed after the version the device saw', async () => {
+      expenseRepo.findOne.mockResolvedValue({
+        id: 'server-id-1', clientId: 'client-uuid-1', userId: 'user-1', amount: 200, category: 'Food',
+        date: new Date('2026-07-18T20:30:00.000Z'), accountId: 'default_bank', version: 3, isDeleted: false, updatedAt: new Date(),
+      });
+      const result = await service.processBatch('user-1', 'expense', [
+        { clientId: 'client-uuid-1', operationType: 'UPDATE', clientVersion: 2, payload: { amount: 150, category: 'Food', accountId: 'default_bank' } },
+      ]);
+      expect(result[0].status).toBe('conflict');
+      expect(result[0].serverVersion).toBe(3);
+    });
+
+    it('applies an update based on the latest server version', async () => {
+      expenseRepo.findOne.mockResolvedValue({
+        id: 'server-id-1', clientId: 'client-uuid-1', userId: 'user-1', amount: 200, category: 'Food',
+        date: new Date('2026-07-18T20:30:00.000Z'), accountId: 'default_bank', version: 3, isDeleted: false, updatedAt: new Date(),
+      });
+      const result = await service.processBatch('user-1', 'expense', [
+        { clientId: 'client-uuid-1', operationType: 'UPDATE', clientVersion: 3, payload: { amount: 150, category: 'Food', accountId: 'default_bank' } },
+      ]);
+      expect(result[0].status).toBe('applied');
+      expect(result[0].serverVersion).toBe(4);
+    });
+
+    it('does not bring a deleted record back on update', async () => {
+      expenseRepo.findOne.mockResolvedValue({
+        id: 'server-id-1', clientId: 'client-uuid-1', userId: 'user-1', amount: 200, version: 4, isDeleted: true, updatedAt: new Date(),
+      });
+      const result = await service.processBatch('user-1', 'expense', [
+        { clientId: 'client-uuid-1', operationType: 'UPDATE', clientVersion: 9, payload: { amount: 150, accountId: 'default_bank' } },
+      ]);
+      expect(result[0].isDeleted).toBe(true);
       expect(expenseRepo.save).not.toHaveBeenCalled();
     });
 

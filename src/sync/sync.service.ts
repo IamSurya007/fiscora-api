@@ -11,6 +11,7 @@ import { Category } from '../database/entities/category.entity';
 import { resolveLegacyCategory, SYSTEM_BY_ID } from '../categories/category-resolver';
 import { LEGACY_CATEGORY_MAP } from '../categories/taxonomy.generated';
 import { ownAccountId } from '../accounts/account-id.util';
+import { openingForTarget, recomputeBalances } from '../accounts/account-balance';
 import { ExpensesService } from '../expenses/expenses.service';
 import { currentIstMonth, istMonthOf } from '../utils/ledger';
 
@@ -97,6 +98,7 @@ export class SyncService {
           source: payload.source || 'MANUAL',
           merchant: payload.merchant || null,
           accountId: payload.accountId || 'default_bank',
+          transferAccountId: payload.transferAccountId || null,
           isCountedAsSpend,
           createdAt: payload.createdAt ? new Date(payload.createdAt) : undefined,
         };
@@ -106,7 +108,10 @@ export class SyncService {
           id: payload.id || undefined,
           name: payload.name || 'Primary Bank Account',
           type: payload.type || 'bank',
-          currentBalance: typeof payload.currentBalance === 'string' ? parseFloat(payload.currentBalance) : (payload.currentBalance || 0),
+          // currentBalance is derived on the server; clients send openingBalance.
+          ...(payload.openingBalance !== undefined && payload.openingBalance !== null
+            ? { openingBalance: typeof payload.openingBalance === 'string' ? parseFloat(payload.openingBalance) : payload.openingBalance }
+            : {}),
           creditLimit: typeof payload.creditLimit === 'string' ? parseFloat(payload.creditLimit) : (payload.creditLimit || 0),
           accountNumberLast4: payload.accountNumberLast4 || null,
           colorValue: typeof payload.colorValue === 'string' ? parseInt(payload.colorValue, 10) : (payload.colorValue !== undefined ? payload.colorValue : 4280962800),
@@ -193,6 +198,7 @@ export class SyncService {
           source: record.source,
           merchant: record.merchant || '',
           accountId: record.accountId || 'default_bank',
+          transferAccountId: record.transferAccountId || '',
           isCountedAsSpend: record.isCountedAsSpend ?? true,
           createdAt: iso(record.createdAt),
         };
@@ -202,6 +208,7 @@ export class SyncService {
           name: record.name,
           type: record.type,
           currentBalance: record.currentBalance,
+          openingBalance: record.openingBalance,
           creditLimit: record.creditLimit,
           accountNumberLast4: record.accountNumberLast4 || '',
           colorValue: record.colorValue,
@@ -294,6 +301,28 @@ export class SyncService {
       }
     }
     return false;
+  }
+
+  /**
+   * App versions before derived balances push an absolute currentBalance and no
+   * openingBalance. Turn that into the opening balance that produces it, so
+   * their "Adjust balance" keeps working.
+   */
+  private async applyLegacyBalance(
+    entityType: string,
+    userId: string,
+    payload: any,
+    mapped: any,
+    account: { id?: string; clientId?: string | null; type?: string },
+  ) {
+    if (entityType !== 'account' || mapped.openingBalance !== undefined) return;
+    const target = typeof payload?.currentBalance === 'string' ? parseFloat(payload.currentBalance) : payload?.currentBalance;
+    if (typeof target !== 'number' || !Number.isFinite(target)) return;
+    mapped.openingBalance = await openingForTarget(this.expenseRepo, userId, {
+      id: account.id ?? '',
+      clientId: account.clientId ?? null,
+      type: (mapped.type ?? account.type ?? 'bank') as any,
+    }, target);
   }
 
   /** Fields for a new row. Account ids are client-chosen but global, so never reuse another user's. */
@@ -406,6 +435,9 @@ export class SyncService {
       return out;
     });
 
+    if (entityType === 'expense' || entityType === 'account') {
+      await recomputeBalances(this.accountRepo, this.expenseRepo, userId);
+    }
     if (entityType === 'expense') {
       this.alertOnSyncedExpenses(userId, operations, results).catch((err) =>
         console.error(`Budget alert after sync failed: ${err.message}`),
@@ -451,6 +483,7 @@ export class SyncService {
       if (operationType === 'CREATE') {
         if (!existing) {
           const mapped = await this.mapForInsert(repo, entityType, userId, payload);
+          await this.applyLegacyBalance(entityType, userId, payload, mapped, { id: mapped.id, clientId, type: mapped.type });
           const entity = repo.create({
             ...mapped,
             userId,
@@ -467,7 +500,13 @@ export class SyncService {
         // after a reinstall (SMS re-import, re-created SMS account). That is
         // idempotent: the server copy wins and is sent back, and a record the
         // user deleted stays deleted.
-        if ((clientVersion || 1) <= (existing.version || 1)) {
+        //
+        // Exception: if the server copy was never changed after it was created
+        // (version 1) and the replay differs, the device edited the record
+        // before it saw the create acknowledged. Keep that edit.
+        const editedBeforeAck =
+          !existing.isDeleted && (existing.version || 1) === 1 && this.hasDiverged(entityType, existing, payload);
+        if ((clientVersion || 1) <= (existing.version || 1) && !editedBeforeAck) {
           return this.applied(clientId, existing, {
             isDeleted: Boolean(existing.isDeleted),
             serverPayload: existing.isDeleted ? undefined : this.getPayload(entityType, existing),
@@ -476,6 +515,7 @@ export class SyncService {
 
         // Newer local version (edited before the first push was acknowledged).
         const mapped = this.mapForUpdate(entityType, payload);
+        await this.applyLegacyBalance(entityType, userId, payload, mapped, existing);
         Object.assign(existing, mapped);
         existing.clientId = clientId;
         existing.version = (existing.version || 1) + 1;
@@ -488,30 +528,43 @@ export class SyncService {
         if (!existing) {
           // Upsert if not found
           const mapped = await this.mapForInsert(repo, entityType, userId, payload);
+          await this.applyLegacyBalance(entityType, userId, payload, mapped, { id: mapped.id, clientId, type: mapped.type });
           const entity = repo.create({
             ...mapped,
             userId,
             clientId,
-            version: clientVersion || 1,
+            version: 1,
             isDeleted: false,
           });
           await repo.save(entity);
           return this.applied(clientId, entity);
         }
 
+        // A deleted record stays deleted: an edit from a device that had not
+        // seen the delete must not bring it back.
+        if (existing.isDeleted) {
+          return this.applied(clientId, existing, { isDeleted: true });
+        }
+
+        // clientVersion is the server version the device last saw. If the
+        // server moved on since then and the edit differs, someone else
+        // changed it: let the user choose instead of silently overwriting.
         const diverged = this.hasDiverged(entityType, existing, payload);
-        if (existing.version >= (clientVersion || 1) && diverged) {
+        if ((existing.version || 1) > (clientVersion || 1) && diverged) {
           return {
             clientId,
             status: 'conflict',
+            serverId: existing.id,
+            serverVersion: existing.version,
+            serverUpdatedAt: existing.updatedAt?.toISOString?.() ?? existing.updatedAt,
             remotePayload: this.getPayload(entityType, existing),
           };
         }
         const mapped = this.mapForUpdate(entityType, payload);
+        await this.applyLegacyBalance(entityType, userId, payload, mapped, existing);
         Object.assign(existing, mapped);
         existing.clientId = clientId; // Associate this clientId with the record
         existing.version = (existing.version || 1) + 1;
-        existing.isDeleted = false;
         existing.updatedAt = new Date();
         await repo.save(existing);
         return this.applied(clientId, existing);
@@ -553,6 +606,9 @@ export class SyncService {
    * from older clients is still accepted.
    */
   async pull(userId: string, entityType: string, since?: string, limit: number = 200): Promise<any> {
+    if (entityType === 'account') {
+      await recomputeBalances(this.accountRepo, this.expenseRepo, userId);
+    }
     const repo = this.getRepository(entityType);
     const pageSize = Math.min(Math.max(limit || 200, 1), 500);
 

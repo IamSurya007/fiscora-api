@@ -28,8 +28,13 @@ export class Account {
   })
   type: AccountType | string;
 
+  /** Derived: openingBalance + effects of live transactions (see account-balance.ts). */
   @Column('float', { default: 0 })
   currentBalance: number;
+
+  /** Balance before any recorded transaction. Null until first computed. */
+  @Column('float', { nullable: true })
+  openingBalance: number | null;
 
   @Column('float', { default: 0 })
   creditLimit: number;

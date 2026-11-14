@@ -6,12 +6,16 @@ import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { AccountType } from '../database/enums';
 import { ownAccountId } from './account-id.util';
+import { Expense } from '../database/entities/expense.entity';
+import { openingForTarget, recomputeBalances } from './account-balance';
 
 @Injectable()
 export class AccountsService {
   constructor(
     @InjectRepository(Account)
     private readonly accountsRepository: Repository<Account>,
+    @InjectRepository(Expense)
+    private readonly expensesRepository: Repository<Expense>,
   ) {}
 
   async ensureDefaultAccount(userId: string): Promise<Account> {
@@ -68,6 +72,8 @@ export class AccountsService {
       userId,
       type: dto.type || AccountType.BANK,
       currentBalance: dto.currentBalance ?? 0,
+      // A new account has no transactions yet, so its balance is its opening balance.
+      openingBalance: dto.currentBalance ?? 0,
       creditLimit: dto.creditLimit ?? 0,
       accountNumberLast4: dto.accountNumberLast4 || null,
       colorValue: dto.colorValue ?? 4280962800,
@@ -80,6 +86,7 @@ export class AccountsService {
 
   async findAll(userId: string): Promise<Account[]> {
     await this.ensureDefaultAccount(userId);
+    await recomputeBalances(this.accountsRepository, this.expensesRepository, userId);
     return this.accountsRepository.find({
       where: { userId, isDeleted: false },
       order: { createdAt: 'ASC' },
@@ -102,7 +109,12 @@ export class AccountsService {
 
     if (dto.name !== undefined) account.name = dto.name;
     if (dto.type !== undefined) account.type = dto.type;
-    if (dto.currentBalance !== undefined) account.currentBalance = dto.currentBalance;
+    if (dto.type !== undefined || dto.currentBalance !== undefined) {
+      // "Set balance to X" moves the opening balance; the balance stays derived.
+      const target = dto.currentBalance ?? account.currentBalance;
+      account.openingBalance = await openingForTarget(this.expensesRepository, userId, account, target);
+      account.currentBalance = target;
+    }
     if (dto.creditLimit !== undefined) account.creditLimit = dto.creditLimit;
     if (dto.accountNumberLast4 !== undefined) account.accountNumberLast4 = dto.accountNumberLast4;
     if (dto.colorValue !== undefined) account.colorValue = dto.colorValue;

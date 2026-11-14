@@ -12,6 +12,12 @@ export class CreateExpenseDto {
   @IsBoolean()
   isCredit?: boolean;
 
+  /** Set for a transfer between the user's own accounts: the account receiving the money. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  transferAccountId?: string;
+
   @IsString()
   @IsNotEmpty()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))

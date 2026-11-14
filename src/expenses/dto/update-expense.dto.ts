@@ -13,6 +13,12 @@ export class UpdateExpenseDto {
   @IsBoolean()
   isCredit?: boolean;
 
+  /** Set for a transfer between the user's own accounts: the account receiving the money. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  transferAccountId?: string;
+
   @IsOptional()
   @IsString()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))

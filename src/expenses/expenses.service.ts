@@ -13,6 +13,9 @@ import { currentIstMonth, istMonthOf, istMonthRange, isIncome, isSpend, LedgerEn
 import { ownAccountId } from '../accounts/account-id.util';
 import { CategoriesService } from '../categories/categories.service';
 import { resolveLegacyCategory } from '../categories/category-resolver';
+import { recomputeBalances } from '../accounts/account-balance';
+
+const TRANSFER_CATEGORY = { categoryId: 'transfers', subcategoryId: 'transfers.self' };
 
 @Injectable()
 export class ExpensesService {
@@ -27,6 +30,24 @@ export class ExpensesService {
     private readonly categoriesService: CategoriesService,
   ) {}
 
+  /**
+   * A transfer moves money between two of the user's own accounts, e.g. a
+   * card bill paid from savings. It is always filed as a self transfer so it
+   * never counts as spend or income.
+   */
+  private async validateTransferTarget(
+    userId: string,
+    fromAccountId: string,
+    transferAccountId?: string | null,
+  ): Promise<string | null> {
+    if (!transferAccountId) return null;
+    const to = await this.validateAndGetAccountId(userId, transferAccountId);
+    if (to === fromAccountId) {
+      throw new BadRequestException('A transfer needs two different accounts');
+    }
+    return to;
+  }
+
   private async validateAndGetAccountId(userId: string, accountId?: string): Promise<string> {
     const targetId = accountId && accountId.trim() !== '' ? accountId.trim() : 'default_bank';
 
@@ -38,7 +59,8 @@ export class ExpensesService {
     });
 
     if (account) {
-      return account.id;
+      // Store the id devices know the account by (mobile matches on clientId).
+      return account.clientId ?? account.id;
     }
 
     if (targetId === 'default_bank') {
@@ -69,12 +91,13 @@ export class ExpensesService {
       ? { categoryId: dto.categoryId, subcategoryId: dto.subcategoryId ?? null }
       : resolveLegacyCategory(dto.category, false);
 
-    const { isCredit, ...fields } = dto;
+    const { isCredit, transferAccountId, ...fields } = dto;
+    const transferTo = await this.validateTransferTarget(userId, validAccountId, transferAccountId);
     const expense = this.expensesRepository.create({
       ...fields,
       amount: isCredit ? -dto.amount : dto.amount,
-      categoryId: ids.categoryId,
-      subcategoryId: ids.subcategoryId,
+      transferAccountId: transferTo,
+      ...(transferTo ? TRANSFER_CATEGORY : { categoryId: ids.categoryId, subcategoryId: ids.subcategoryId }),
       userId,
       accountId: validAccountId,
       isCountedAsSpend: dto.isCountedAsSpend ?? true,
@@ -82,7 +105,7 @@ export class ExpensesService {
     });
 
     const savedExpense = await this.expensesRepository.save(expense);
-    await this.adjustAccountBalance(userId, savedExpense.accountId, savedExpense.amount);
+    await this.refreshBalances(userId);
 
     // Trigger budget check asynchronously
     this.checkBudgetAlert(userId, savedExpense).catch(err => {
@@ -163,7 +186,7 @@ export class ExpensesService {
 
   async update(userId: string, id: string, dto: UpdateExpenseDto): Promise<Expense> {
     const expense = await this.findOne(userId, id);
-    const before = { accountId: expense.accountId, amount: expense.amount };
+    const before = { accountId: expense.accountId, amount: expense.amount, transferAccountId: expense.transferAccountId };
 
     if (dto.accountId !== undefined) {
       expense.accountId = await this.validateAndGetAccountId(userId, dto.accountId);
@@ -184,6 +207,10 @@ export class ExpensesService {
       expense.categoryId = ids.categoryId;
       expense.subcategoryId = ids.subcategoryId;
     }
+    if (dto.transferAccountId !== undefined) {
+      expense.transferAccountId = await this.validateTransferTarget(userId, expense.accountId, dto.transferAccountId);
+      if (expense.transferAccountId) Object.assign(expense, TRANSFER_CATEGORY);
+    }
     if (dto.note !== undefined) expense.note = dto.note;
     if (dto.date !== undefined) expense.date = new Date(dto.date);
     if (dto.method !== undefined) expense.method = dto.method;
@@ -193,9 +220,12 @@ export class ExpensesService {
     expense.version = (expense.version || 1) + 1;
 
     const saved = await this.expensesRepository.save(expense);
-    if (before.accountId !== saved.accountId || before.amount !== saved.amount) {
-      await this.adjustAccountBalance(userId, before.accountId, -before.amount);
-      await this.adjustAccountBalance(userId, saved.accountId, saved.amount);
+    if (
+      before.accountId !== saved.accountId ||
+      before.amount !== saved.amount ||
+      before.transferAccountId !== saved.transferAccountId
+    ) {
+      await this.refreshBalances(userId);
     }
 
     if (dto.category !== undefined || dto.categoryId !== undefined || dto.amount !== undefined || dto.date !== undefined || dto.isCountedAsSpend !== undefined) {
@@ -213,28 +243,12 @@ export class ExpensesService {
     expense.isDeleted = true;
     expense.version = (expense.version || 1) + 1;
     await this.expensesRepository.save(expense);
-    await this.adjustAccountBalance(userId, expense.accountId, -expense.amount);
+    await this.refreshBalances(userId);
   }
 
-  /**
-   * Web-entered expenses used to leave account balances untouched. Mirrors the
-   * mobile rule: a debit lowers a bank/cash/wallet balance and raises a credit
-   * card's outstanding; credits (negative amounts) do the reverse. Bumping the
-   * version lets mobile pick the new balance up on its next pull.
-   */
-  private async adjustAccountBalance(userId: string, accountId: string | null, amount: number) {
-    if (!accountId || !amount) return;
-    const account = await this.accountsRepository.findOne({
-      where: [
-        { id: accountId, userId, isDeleted: false },
-        { clientId: accountId, userId, isDeleted: false },
-      ],
-    });
-    if (!account) return;
-    const delta = account.type === AccountType.CREDIT_CARD ? amount : -amount;
-    account.currentBalance = Math.round((account.currentBalance + delta) * 100) / 100;
-    account.version = (account.version || 1) + 1;
-    await this.accountsRepository.save(account);
+  /** Balances are derived from transactions (see accounts/account-balance.ts). */
+  private async refreshBalances(userId: string) {
+    await recomputeBalances(this.accountsRepository, this.expensesRepository, userId);
   }
 
   async getSummary(userId: string, month?: string) {

@@ -65,6 +65,10 @@ export class Expense {
   @Index()
   accountId: string;
 
+  /** For a transfer between the user's own accounts: the account receiving the money. */
+  @Column({ type: 'varchar', nullable: true })
+  transferAccountId: string | null;
+
   @Column({ type: 'boolean', default: true })
   isCountedAsSpend: boolean;
 
