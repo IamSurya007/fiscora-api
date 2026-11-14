@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, LessThan } from 'typeorm';
+import { Repository, Between, LessThan, Like } from 'typeorm';
 import { Expense } from '../database/entities/expense.entity';
 import { Budget } from '../database/entities/budget.entity';
 import { Account } from '../database/entities/account.entity';
@@ -9,6 +9,7 @@ import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { QueryExpenseDto } from './dto/query-expense.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AccountType } from '../database/enums';
+import { currentIstMonth, istMonthOf, istMonthRange, isIncome, isSpend, LedgerEntry } from '../utils/ledger';
 import { ownAccountId } from '../accounts/account-id.util';
 import { CategoriesService } from '../categories/categories.service';
 import { resolveLegacyCategory } from '../categories/category-resolver';
@@ -81,7 +82,7 @@ export class ExpensesService {
     const savedExpense = await this.expensesRepository.save(expense);
 
     // Trigger budget check asynchronously
-    this.checkBudgetAlert(userId, ids.categoryId, dto.date).catch(err => {
+    this.checkBudgetAlert(userId, savedExpense).catch(err => {
       console.error(`Failed to check budget alert: ${err.message}`);
     });
 
@@ -89,14 +90,12 @@ export class ExpensesService {
   }
 
   async findAll(userId: string, query: QueryExpenseDto): Promise<Expense[]> {
-    const startDate = new Date(`${query.month}-01T00:00:00.000Z`);
-    const endDate = new Date(startDate);
-    endDate.setMonth(startDate.getMonth() + 1);
+    const { start, end } = istMonthRange(query.month);
 
     const whereConditions: any = {
       userId,
       isDeleted: false,
-      date: Between(startDate, new Date(endDate.getTime() - 1)),
+      date: Between(start, new Date(end.getTime() - 1)),
     };
 
     if (query.category) {
@@ -122,9 +121,11 @@ export class ExpensesService {
         const cursorDate = cursorExpense.date;
         const cursorId = cursorExpense.id;
 
+        // Stay inside the requested month: replacing `date` with LessThan
+        // alone made later pages return every older month too.
         return this.expensesRepository.find({
           where: [
-            ...withCategory({ date: LessThan(cursorDate) }),
+            ...withCategory({ date: Between(start, new Date(cursorDate.getTime() - 1)) }),
             ...withCategory({ date: cursorDate, id: LessThan(cursorId) }),
           ],
           order: {
@@ -186,8 +187,7 @@ export class ExpensesService {
     const saved = await this.expensesRepository.save(expense);
 
     if (dto.category !== undefined || dto.categoryId !== undefined || dto.amount !== undefined || dto.date !== undefined || dto.isCountedAsSpend !== undefined) {
-      const dateToCheck = dto.date || expense.date.toISOString();
-      this.checkBudgetAlert(userId, expense.categoryId, dateToCheck).catch(err => {
+      this.checkBudgetAlert(userId, saved).catch(err => {
         console.error(`Failed to check budget alert after update: ${err.message}`);
       });
     }
@@ -206,32 +206,29 @@ export class ExpensesService {
   async getSummary(userId: string, month?: string) {
     let targetMonth = month;
     if (!targetMonth) {
-      const now = new Date();
-      targetMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      targetMonth = currentIstMonth();
     } else if (!/^\d{4}-\d{2}$/.test(targetMonth)) {
       throw new BadRequestException('Month must be in YYYY-MM format');
     }
 
-    const startDate = new Date(`${targetMonth}-01T00:00:00.000Z`);
-    const endDate = new Date(startDate);
-    endDate.setMonth(startDate.getMonth() + 1);
+    const { start, end } = istMonthRange(targetMonth);
 
     const [expenses, names] = await Promise.all([
       this.expensesRepository.find({
         where: {
           userId,
           isDeleted: false,
-          date: Between(startDate, new Date(endDate.getTime() - 1)),
+          date: Between(start, new Date(end.getTime() - 1)),
         },
       }),
       this.categoriesService.namesForUser(userId),
     ]);
 
-    const spendExpenses = expenses.filter(exp => exp.isCountedAsSpend !== false && exp.amount > 0);
+    const spendExpenses = expenses.filter(isSpend);
 
     const totalExpenses = spendExpenses.reduce((sum, exp) => sum + exp.amount, 0);
-    // Since there's no Income table, default to 0
-    const totalIncome = 0;
+    // Credits are stored as negative amounts; transfers are neither side.
+    const totalIncome = expenses.filter(isIncome).reduce((sum, exp) => sum - exp.amount, 0);
     const balance = totalIncome - totalExpenses;
 
     // Group by parent category, with a subcategory breakdown.
@@ -282,10 +279,14 @@ export class ExpensesService {
   /**
    * Budgets are keyed by parent category id. The mobile app stores limits
    * that apply to every month under month 'all'; a month-specific budget wins.
+   * Alerts once when this expense pushes the category across 80% or 100%,
+   * instead of on every expense after 80%. Public so synced expenses alert too.
    */
-  private async checkBudgetAlert(userId: string, categoryId: string | null, dateStr: string): Promise<void> {
+  async checkBudgetAlert(userId: string, expense: LedgerEntry & { date: Date | string }): Promise<void> {
+    if (!isSpend(expense)) return;
+    const categoryId = (expense.categoryId ?? resolveLegacyCategory(expense.category).categoryId)?.split('.')[0];
     if (!categoryId) return;
-    const month = dateStr.substring(0, 7); // extract "YYYY-MM"
+    const month = istMonthOf(expense.date);
 
     const budgets = await this.budgetsRepository.find({
       where: [
@@ -296,28 +297,22 @@ export class ExpensesService {
     const budget = budgets.find(b => b.month === month) ?? budgets[0];
     if (!budget || budget.limit <= 0) return;
 
-    // Calculate total spent in this category for this month
-    const startDate = new Date(`${month}-01T00:00:00.000Z`);
-    const endDate = new Date(startDate);
-    endDate.setMonth(startDate.getMonth() + 1);
-
+    const { start, end } = istMonthRange(month);
     const expenses = await this.expensesRepository.find({
-      where: {
-        userId,
-        categoryId,
-        isDeleted: false,
-        date: Between(startDate, new Date(endDate.getTime() - 1)),
-      },
+      where: [
+        { userId, categoryId, isDeleted: false, date: Between(start, new Date(end.getTime() - 1)) },
+        { userId, categoryId: Like(`${categoryId}.%`), isDeleted: false, date: Between(start, new Date(end.getTime() - 1)) },
+      ],
     });
 
-    const spendExpenses = expenses.filter(exp => exp.isCountedAsSpend !== false && exp.amount > 0);
+    const totalSpent = expenses.filter(isSpend).reduce((sum, exp) => sum + exp.amount, 0);
+    const percentNow = (totalSpent / budget.limit) * 100;
+    const percentBefore = ((totalSpent - expense.amount) / budget.limit) * 100;
+    const crossed = [100, 80].find(t => percentBefore < t && percentNow >= t);
 
-    const totalSpent = spendExpenses.reduce((sum, exp) => sum + exp.amount, 0);
-    const percentUsed = (totalSpent / budget.limit) * 100;
-
-    if (percentUsed >= 80) {
+    if (crossed) {
       const names = await this.categoriesService.namesForUser(userId);
-      await this.notificationsService.sendBudgetAlert(userId, names.name(categoryId) ?? categoryId, percentUsed);
+      await this.notificationsService.sendBudgetAlert(userId, names.name(categoryId) ?? categoryId, percentNow);
     }
   }
 }

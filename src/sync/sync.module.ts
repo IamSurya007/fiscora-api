@@ -9,6 +9,7 @@ import { Budget } from '../database/entities/budget.entity';
 import { CategoryRule } from '../database/entities/category-rule.entity';
 import { Account } from '../database/entities/account.entity';
 import { Category } from '../database/entities/category.entity';
+import { ExpensesModule } from '../expenses/expenses.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { Category } from '../database/entities/category.entity';
       Account,
       Category,
     ]),
+    ExpensesModule,
   ],
   controllers: [SyncController],
   providers: [SyncService],

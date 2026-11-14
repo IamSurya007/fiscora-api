@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { SyncService } from './sync.service';
+import { ExpensesService } from '../expenses/expenses.service';
 import { Expense } from '../database/entities/expense.entity';
 import { Loan } from '../database/entities/loan.entity';
 import { Investment } from '../database/entities/investment.entity';
@@ -52,6 +53,7 @@ describe('SyncService', () => {
         { provide: getRepositoryToken(Account), useFactory: mockRepository },
         { provide: getRepositoryToken(Category), useFactory: mockRepository },
         { provide: DataSource, useFactory: mockDataSource },
+        { provide: ExpensesService, useValue: { checkBudgetAlert: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 

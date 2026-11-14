@@ -26,3 +26,25 @@ export function decrypt(encryptedText: string, secret: string): string {
   decrypted += decipher.final('utf8');
   return decrypted;
 }
+
+/**
+ * Authenticated encryption (AES-256-GCM) for stored OAuth refresh tokens.
+ * Format: "v2:<iv>:<tag>:<ciphertext>" (hex). The key must be a private
+ * server secret (e.g. 32+ random bytes); unlike CBC above, tampering fails.
+ */
+export function encryptV2(text: string, key: string): string {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', getSecretKey(key), iv);
+  const data = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+  return `v2:${iv.toString('hex')}:${cipher.getAuthTag().toString('hex')}:${data.toString('hex')}`;
+}
+
+export function decryptV2(payload: string, key: string): string {
+  const [version, ivHex, tagHex, dataHex] = payload.split(':');
+  if (version !== 'v2' || !ivHex || !tagHex || dataHex === undefined) {
+    throw new Error('Invalid v2 encrypted format');
+  }
+  const decipher = crypto.createDecipheriv('aes-256-gcm', getSecretKey(key), Buffer.from(ivHex, 'hex'));
+  decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+  return Buffer.concat([decipher.update(Buffer.from(dataHex, 'hex')), decipher.final()]).toString('utf8');
+}

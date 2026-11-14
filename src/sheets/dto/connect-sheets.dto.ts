@@ -9,3 +9,17 @@ export class ConnectSheetsDto {
   @IsNotEmpty()
   sheetsToken: string; // Google OAuth refresh token
 }
+
+export class ExchangeSheetsCodeDto {
+  @IsString()
+  @IsNotEmpty()
+  sheetsId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  code: string; // Google OAuth authorization code from the redirect
+
+  @IsString()
+  @IsNotEmpty()
+  redirectUri: string; // must match the authorize request and SHEETS_OAUTH_REDIRECT_URIS
+}

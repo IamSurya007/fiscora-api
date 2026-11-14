@@ -7,6 +7,7 @@ import { UpsertBudgetDto } from './dto/upsert-budget.dto';
 import { CategoriesService } from '../categories/categories.service';
 import { resolveLegacyCategory, SYSTEM_BY_ID } from '../categories/category-resolver';
 import { LEGACY_CATEGORY_MAP } from '../categories/taxonomy.generated';
+import { istMonthRange, isSpend } from '../utils/ledger';
 
 @Injectable()
 export class BudgetsService {
@@ -109,22 +110,20 @@ export class BudgetsService {
       ...allBudgets.filter(a => !monthBudgets.some(m => normalizeBudgetKey(m.category) === normalizeBudgetKey(a.category))),
     ];
 
-    const startDate = new Date(`${month}-01T00:00:00.000Z`);
-    const endDate = new Date(startDate);
-    endDate.setMonth(startDate.getMonth() + 1);
+    const { start, end } = istMonthRange(month);
 
     const expenses = await this.expensesRepository.find({
       where: {
         userId,
         isDeleted: false,
-        date: Between(startDate, new Date(endDate.getTime() - 1)),
+        date: Between(start, new Date(end.getTime() - 1)),
       },
     });
 
     // Spend per parent category id (debits counted as spend only).
     const categorySpentMap = new Map<string, number>();
     for (const exp of expenses) {
-      if (exp.isCountedAsSpend === false || exp.amount <= 0) continue;
+      if (!isSpend(exp)) continue;
       const key = exp.categoryId ?? resolveLegacyCategory(exp.category).categoryId;
       categorySpentMap.set(key, (categorySpentMap.get(key) ?? 0) + exp.amount);
     }

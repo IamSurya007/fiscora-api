@@ -7,8 +7,9 @@ import { User } from '../database/entities/user.entity';
 import { Expense } from '../database/entities/expense.entity';
 import { Loan } from '../database/entities/loan.entity';
 import { Investment } from '../database/entities/investment.entity';
-import { encrypt, decrypt } from '../utils/crypto';
-import { ConnectSheetsDto } from './dto/connect-sheets.dto';
+import { encrypt, decrypt, encryptV2, decryptV2 } from '../utils/crypto';
+import { ConnectSheetsDto, ExchangeSheetsCodeDto } from './dto/connect-sheets.dto';
+import { currentIstMonth, istMonthRange, isIncome, isSpend } from '../utils/ledger';
 
 /**
  * Sheets evaluates USER_ENTERED strings, so a merchant or note such as
@@ -38,24 +39,92 @@ export class SheetsService {
     private readonly config: ConfigService,
   ) {}
 
-  private getCryptoSecret(): string {
+  /** Old tokens were encrypted with this public value; kept only to read them. */
+  private legacySecret(): string {
     return this.config.get<string>('FIREBASE_PROJECT_ID') || 'default-spendly-secret-key';
   }
 
-  async connect(userId: string, dto: ConnectSheetsDto): Promise<User> {
+  /** Private key for stored refresh tokens. Without it, fall back to the legacy scheme. */
+  private tokenKey(): string | undefined {
+    return this.config.get<string>('SHEETS_TOKEN_KEY') || undefined;
+  }
+
+  private sealToken(refreshToken: string): string {
+    const key = this.tokenKey();
+    if (!key) {
+      this.logger.warn('SHEETS_TOKEN_KEY is not set; storing the Sheets token with the legacy key');
+      return encrypt(refreshToken, this.legacySecret());
+    }
+    return encryptV2(refreshToken, key);
+  }
+
+  private openToken(stored: string): { token: string; isLegacy: boolean } {
+    if (stored.startsWith('v2:')) {
+      const key = this.tokenKey();
+      if (!key) throw new BadRequestException('Server is missing SHEETS_TOKEN_KEY');
+      return { token: decryptV2(stored, key), isLegacy: false };
+    }
+    return { token: decrypt(stored, this.legacySecret()), isLegacy: true };
+  }
+
+  async connect(userId: string, dto: ConnectSheetsDto) {
+    return this.saveConnection(userId, dto.sheetsId, dto.sheetsToken);
+  }
+
+  /**
+   * Exchanges a Google OAuth authorization code on the server, so the client
+   * secret never reaches the browser.
+   */
+  async connectWithCode(userId: string, dto: ExchangeSheetsCodeDto) {
+    const allowed = (this.config.get<string>('SHEETS_OAUTH_REDIRECT_URIS') ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!allowed.includes(dto.redirectUri)) {
+      throw new BadRequestException('redirectUri is not allowed');
+    }
+
+    let refreshToken: string | undefined;
+    try {
+      const response = await axios.post(
+        'https://oauth2.googleapis.com/token',
+        new URLSearchParams({
+          client_id: this.config.get<string>('GOOGLE_SHEETS_CLIENT_ID') ?? '',
+          client_secret: this.config.get<string>('GOOGLE_SHEETS_CLIENT_SECRET') ?? '',
+          code: dto.code,
+          grant_type: 'authorization_code',
+          redirect_uri: dto.redirectUri,
+        }),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15_000 },
+      );
+      refreshToken = response.data.refresh_token;
+    } catch (error) {
+      this.logger.error(`Google code exchange failed: ${error.response?.data?.error || error.message}`);
+      throw new BadRequestException('Google authorization failed. Please try connecting again.');
+    }
+    if (!refreshToken) {
+      throw new BadRequestException(
+        'Google returned no refresh token. Remove Fiscora from your Google account permissions and try again.',
+      );
+    }
+    return this.saveConnection(userId, dto.sheetsId, refreshToken);
+  }
+
+  private async saveConnection(userId: string, sheetsId: string, refreshToken: string) {
+    if (!/^[A-Za-z0-9_-]{20,100}$/.test(sheetsId)) {
+      throw new BadRequestException('Invalid spreadsheet ID');
+    }
     const user = await this.usersRepository.findOne({ where: { id: userId } });
     if (!user) {
       throw new BadRequestException('User not found');
     }
 
-    const secret = this.getCryptoSecret();
-    const encryptedToken = encrypt(dto.sheetsToken, secret);
-
     user.sheetsConnected = true;
-    user.sheetsId = dto.sheetsId;
-    user.sheetsToken = encryptedToken;
-
-    return this.usersRepository.save(user);
+    user.sheetsId = sheetsId;
+    user.sheetsToken = this.sealToken(refreshToken);
+    await this.usersRepository.save(user);
+    // Never return the user row: it holds the (encrypted) token and FCM token.
+    return this.getStatus(userId);
   }
 
   async disconnect(userId: string): Promise<User> {
@@ -109,8 +178,12 @@ export class SheetsService {
       throw new BadRequestException('Google Sheets not connected');
     }
 
-    const secret = this.getCryptoSecret();
-    const decryptedToken = decrypt(user.sheetsToken, secret);
+    const { token: decryptedToken, isLegacy } = this.openToken(user.sheetsToken);
+    if (isLegacy && this.tokenKey()) {
+      // Re-encrypt tokens stored under the old public key.
+      user.sheetsToken = this.sealToken(decryptedToken);
+      await this.usersRepository.save(user);
+    }
     
     // Refresh token to get active access token
     const accessToken = await this.refreshAccessToken(decryptedToken);
@@ -118,17 +191,17 @@ export class SheetsService {
 
     // Fetch user data
     const expenses = await this.expensesRepository.find({
-      where: { userId },
+      where: { userId, isDeleted: false },
       order: { date: 'DESC' },
     });
 
     const loans = await this.loansRepository.find({
-      where: { userId },
+      where: { userId, isDeleted: false },
       order: { createdAt: 'DESC' },
     });
 
     const investments = await this.investmentsRepository.find({
-      where: { userId },
+      where: { userId, isDeleted: false },
       order: { startDate: 'DESC' },
     });
 
@@ -244,28 +317,25 @@ export class SheetsService {
   }
 
   private async getSummaryData(userId: string): Promise<any[][]> {
-    const today = new Date();
     const summaryRows: any[][] = [['Month', 'Income', 'Expenses', 'Balance']];
 
-    // Compute last 12 months summary
+    // Last 12 IST months, oldest first
+    const [cy, cm] = currentIstMonth().split('-').map(Number);
     for (let i = 11; i >= 0; i--) {
-      const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
-      const monthStr = d.toISOString().substring(0, 7); // "YYYY-MM"
-
-      const startDate = new Date(d.getFullYear(), d.getMonth(), 1);
-      const endDate = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
+      const d = new Date(Date.UTC(cy, cm - 1 - i, 1));
+      const monthStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+      const { start, end } = istMonthRange(monthStr);
 
       const expenses = await this.expensesRepository.find({
         where: {
           userId,
-          date: Between(startDate, endDate),
+          isDeleted: false,
+          date: Between(start, new Date(end.getTime() - 1)),
         },
       });
 
-      const totalExpenses = expenses
-        .filter(e => e.isCountedAsSpend !== false)
-        .reduce((sum, e) => sum + e.amount, 0);
-      const totalIncome = 0; // default as there's no Income table
+      const totalExpenses = expenses.filter(isSpend).reduce((sum, e) => sum + e.amount, 0);
+      const totalIncome = expenses.filter(isIncome).reduce((sum, e) => sum - e.amount, 0);
       const balance = totalIncome - totalExpenses;
 
       summaryRows.push([monthStr, totalIncome, totalExpenses, balance]);

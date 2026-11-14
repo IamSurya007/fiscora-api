@@ -11,6 +11,8 @@ import { Category } from '../database/entities/category.entity';
 import { resolveLegacyCategory, SYSTEM_BY_ID } from '../categories/category-resolver';
 import { LEGACY_CATEGORY_MAP } from '../categories/taxonomy.generated';
 import { ownAccountId } from '../accounts/account-id.util';
+import { ExpensesService } from '../expenses/expenses.service';
+import { currentIstMonth, istMonthOf } from '../utils/ledger';
 
 const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : d);
 
@@ -33,6 +35,7 @@ export class SyncService {
     private readonly categoryRepo: Repository<Category>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly expensesService: ExpensesService,
   ) {}
 
   private getRepository(entityType: string): Repository<any> {
@@ -394,14 +397,38 @@ export class SyncService {
     // the same clientId (retry racing the original request) could otherwise
     // both miss `findExistingRecord` and insert duplicate rows. The lock is
     // released when the (otherwise empty) transaction ends.
-    return this.dataSource.transaction(async (manager) => {
+    const results: any[] = await this.dataSource.transaction(async (manager) => {
       await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`sync:${userId}:${entityType}`]);
-      const results: any[] = [];
+      const out: any[] = [];
       for (const op of operations) {
-        results.push(await this.processOperation(repo, userId, entityType, op));
+        out.push(await this.processOperation(repo, userId, entityType, op));
       }
-      return results;
+      return out;
     });
+
+    if (entityType === 'expense') {
+      this.alertOnSyncedExpenses(userId, operations, results).catch((err) =>
+        console.error(`Budget alert after sync failed: ${err.message}`),
+      );
+    }
+    return results;
+  }
+
+  /**
+   * Budget alerts used to fire only for expenses created on the web. Run them
+   * for synced (mobile/SMS) expenses too, limited to the current IST month so a
+   * reinstall replaying old history doesn't alert about past months.
+   */
+  private async alertOnSyncedExpenses(userId: string, operations: any[], results: any[]) {
+    const thisMonth = currentIstMonth();
+    for (let i = 0; i < operations.length; i++) {
+      const op = operations[i];
+      if (results[i]?.status !== 'applied') continue;
+      if (op.operationType !== 'CREATE' && op.operationType !== 'UPDATE') continue;
+      const expense = await this.expenseRepo.findOne({ where: { userId, clientId: op.clientId } });
+      if (!expense || expense.isDeleted || istMonthOf(expense.date) !== thisMonth) continue;
+      await this.expensesService.checkBudgetAlert(userId, expense);
+    }
   }
 
   private async processOperation(repo: Repository<any>, userId: string, entityType: string, op: any): Promise<any> {

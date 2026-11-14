@@ -9,6 +9,7 @@ import { Expense } from '../database/entities/expense.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SheetsService } from '../sheets/sheets.service';
 import { LoanStatus } from '../database/enums';
+import { currentIstMonth, istMonthRange, isIncome, isSpend } from '../utils/ledger';
 
 @Injectable()
 export class SchedulerService {
@@ -134,28 +135,24 @@ export class SchedulerService {
       where: { fcmToken: Not(IsNull()) },
     });
 
-    const prevMonthDate = new Date();
-    prevMonthDate.setMonth(prevMonthDate.getMonth() - 1);
-    
-    const year = prevMonthDate.getFullYear();
-    const monthIndex = prevMonthDate.getMonth();
-    const startDate = new Date(year, monthIndex, 1);
-    const endDate = new Date(year, monthIndex + 1, 0, 23, 59, 59, 999);
-    
-    const monthName = startDate.toLocaleString('default', { month: 'long' });
+    // Previous IST month (the job runs at 08:00 IST on the 1st)
+    const [cy, cm] = currentIstMonth().split('-').map(Number);
+    const prev = new Date(Date.UTC(cy, cm - 2, 1));
+    const prevMonth = `${prev.getUTCFullYear()}-${String(prev.getUTCMonth() + 1).padStart(2, '0')}`;
+    const { start, end } = istMonthRange(prevMonth);
+    const monthName = prev.toLocaleString('en-IN', { month: 'long', timeZone: 'UTC' });
 
     for (const user of users) {
       const expenses = await this.expensesRepository.find({
         where: {
           userId: user.id,
-          date: Between(startDate, endDate),
+          isDeleted: false,
+          date: Between(start, new Date(end.getTime() - 1)),
         },
       });
 
-      const totalExpenses = expenses
-        .filter(e => e.isCountedAsSpend !== false)
-        .reduce((sum, e) => sum + e.amount, 0);
-      const totalIncome = 0; // standard default
+      const totalExpenses = expenses.filter(isSpend).reduce((sum, e) => sum + e.amount, 0);
+      const totalIncome = expenses.filter(isIncome).reduce((sum, e) => sum - e.amount, 0);
       const balance = totalIncome - totalExpenses;
 
       await this.notificationsService.sendMonthlySummary(user.id, monthName, balance);

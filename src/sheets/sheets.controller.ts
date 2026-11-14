@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Delete, Body } from '@nestjs/common';
 import { ApiBearerAuth } from '@nestjs/swagger';
 import { SheetsService } from './sheets.service';
-import { ConnectSheetsDto } from './dto/connect-sheets.dto';
+import { ConnectSheetsDto, ExchangeSheetsCodeDto } from './dto/connect-sheets.dto';
 import { CurrentUser } from '../auth/current-user.decorator';
 
 @ApiBearerAuth('bearer')
@@ -15,6 +15,15 @@ export class SheetsController {
     @Body() dto: ConnectSheetsDto,
   ) {
     return this.sheetsService.connect(userId, dto);
+  }
+
+  /** Preferred: the server exchanges the OAuth code, so the client secret stays private. */
+  @Post('oauth/exchange')
+  async exchange(
+    @CurrentUser('uid') userId: string,
+    @Body() dto: ExchangeSheetsCodeDto,
+  ) {
+    return this.sheetsService.connectWithCode(userId, dto);
   }
 
   @Post('sync')
