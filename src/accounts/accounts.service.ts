@@ -109,9 +109,15 @@ export class AccountsService {
 
     if (dto.name !== undefined) account.name = dto.name;
     if (dto.type !== undefined) account.type = dto.type;
-    if (dto.type !== undefined || dto.currentBalance !== undefined) {
+    const typeChanged = dto.type !== undefined && dto.type !== account.type;
+    if (typeChanged || dto.currentBalance !== undefined) {
       // "Set balance to X" moves the opening balance; the balance stays derived.
-      const target = dto.currentBalance ?? account.currentBalance;
+      // A type change (bank <-> card) flips how transactions count, so keep the
+      // balance the user sees by re-deriving the opening balance too.
+      await recomputeBalances(this.accountsRepository, this.expensesRepository, userId);
+      const fresh = await this.accountsRepository.findOne({ where: { id: account.id } });
+      const target = dto.currentBalance ?? fresh?.currentBalance ?? account.currentBalance;
+      if (dto.type !== undefined) account.type = dto.type;
       account.openingBalance = await openingForTarget(this.expensesRepository, userId, account, target);
       account.currentBalance = target;
     }
