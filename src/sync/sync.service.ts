@@ -10,6 +10,7 @@ import { Account } from '../database/entities/account.entity';
 import { Category } from '../database/entities/category.entity';
 import { resolveLegacyCategory, SYSTEM_BY_ID } from '../categories/category-resolver';
 import { LEGACY_CATEGORY_MAP } from '../categories/taxonomy.generated';
+import { ownAccountId } from '../accounts/account-id.util';
 
 const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : d);
 
@@ -292,6 +293,31 @@ export class SyncService {
     return false;
   }
 
+  /** Fields for a new row. Account ids are client-chosen but global, so never reuse another user's. */
+  private async mapForInsert(repo: Repository<any>, entityType: string, userId: string, payload: any) {
+    const mapped: any = this.mapChecked(entityType, payload);
+    if (entityType === 'account') mapped.id = await ownAccountId(repo, userId, mapped.id);
+    return mapped;
+  }
+
+  /** Fields for updating an existing row: the primary key never changes. */
+  private mapForUpdate(entityType: string, payload: any) {
+    const mapped: any = this.mapChecked(entityType, payload);
+    delete mapped.id;
+    return mapped;
+  }
+
+  /** NaN/Infinity (e.g. parseFloat("abc")) would poison every sum; reject the op instead. */
+  private mapChecked(entityType: string, payload: any) {
+    const mapped: any = this.mapPayloadToFields(entityType, payload);
+    for (const [key, value] of Object.entries(mapped)) {
+      if (typeof value === 'number' && !Number.isFinite(value)) {
+        throw new BadRequestException(`${entityType}.${key} must be a finite number`);
+      }
+    }
+    return mapped;
+  }
+
   private async findExistingRecord(
     repo: Repository<any>,
     entityType: string,
@@ -332,7 +358,8 @@ export class SyncService {
 
     if (accountId === 'default_bank') {
       const defaultAcc = this.accountRepo.create({
-        id: 'default_bank',
+        id: await ownAccountId(this.accountRepo, userId, 'default_bank'),
+        clientId: 'default_bank',
         userId,
         name: 'Default Bank Account',
         type: 'bank',
@@ -396,7 +423,7 @@ export class SyncService {
 
       if (operationType === 'CREATE') {
         if (!existing) {
-          const mapped = this.mapPayloadToFields(entityType, payload);
+          const mapped = await this.mapForInsert(repo, entityType, userId, payload);
           const entity = repo.create({
             ...mapped,
             userId,
@@ -421,7 +448,7 @@ export class SyncService {
         }
 
         // Newer local version (edited before the first push was acknowledged).
-        const mapped = this.mapPayloadToFields(entityType, payload);
+        const mapped = this.mapForUpdate(entityType, payload);
         Object.assign(existing, mapped);
         existing.clientId = clientId;
         existing.version = (existing.version || 1) + 1;
@@ -433,7 +460,7 @@ export class SyncService {
       if (operationType === 'UPDATE') {
         if (!existing) {
           // Upsert if not found
-          const mapped = this.mapPayloadToFields(entityType, payload);
+          const mapped = await this.mapForInsert(repo, entityType, userId, payload);
           const entity = repo.create({
             ...mapped,
             userId,
@@ -453,7 +480,7 @@ export class SyncService {
             remotePayload: this.getPayload(entityType, existing),
           };
         }
-        const mapped = this.mapPayloadToFields(entityType, payload);
+        const mapped = this.mapForUpdate(entityType, payload);
         Object.assign(existing, mapped);
         existing.clientId = clientId; // Associate this clientId with the record
         existing.version = (existing.version || 1) + 1;
@@ -466,7 +493,7 @@ export class SyncService {
       if (operationType === 'DELETE') {
         if (!existing) {
           // If doesn't exist, create it as soft-deleted to keep tombstone
-          const mapped = this.mapPayloadToFields(entityType, payload);
+          const mapped = await this.mapForInsert(repo, entityType, userId, payload);
           const entity = repo.create({
             ...mapped,
             userId,

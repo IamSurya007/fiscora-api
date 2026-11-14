@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+const EMBED_BATCH_SIZE = 32;
+const EMBED_TIMEOUT_MS = 30_000;
+
 interface EmbedResponse {
   embeddings: number[][];
   dim: number;
@@ -17,8 +20,13 @@ export class EmbeddingService {
     this.baseUrl = this.config.get<string>('EMBEDDING_SERVICE_URL', 'http://embedding-service:8090');
   }
 
+  /** The embedding service accepts at most 64 texts per request; send 32 at a time. */
   async embedPassages(texts: string[]): Promise<number[][]> {
-    return this.call('/embed/passage', texts);
+    const vectors: number[][] = [];
+    for (let i = 0; i < texts.length; i += EMBED_BATCH_SIZE) {
+      vectors.push(...(await this.call('/embed/passage', texts.slice(i, i + EMBED_BATCH_SIZE))));
+    }
+    return vectors;
   }
 
   async embedQuery(text: string): Promise<number[]> {
@@ -31,6 +39,7 @@ export class EmbeddingService {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ texts }),
+      signal: AbortSignal.timeout(EMBED_TIMEOUT_MS),
     });
 
     if (!res.ok) {

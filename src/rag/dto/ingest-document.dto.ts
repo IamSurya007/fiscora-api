@@ -1,4 +1,4 @@
-import { IsString, IsIn, MinLength } from 'class-validator';
+import { IsString, IsIn, MaxLength, MinLength } from 'class-validator';
 
 export class IngestDocumentDto {
   @IsString()
@@ -11,6 +11,7 @@ export class IngestDocumentDto {
 
   @IsString()
   @MinLength(20)
+  @MaxLength(200_000)
   content: string; // markdown or plain text of the curated doc
 
   @IsString()

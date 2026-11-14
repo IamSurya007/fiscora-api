@@ -22,6 +22,10 @@ export class IngestionService {
       category: dto.category,
       content: dto.content,
       version,
+    }, {
+      // Each job carries the whole document; don't keep it in Redis afterwards.
+      removeOnComplete: true,
+      removeOnFail: 100,
     });
 
     return { jobId: job.id as string, docId };

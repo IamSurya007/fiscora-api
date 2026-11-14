@@ -9,6 +9,7 @@ import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { QueryExpenseDto } from './dto/query-expense.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AccountType } from '../database/enums';
+import { ownAccountId } from '../accounts/account-id.util';
 import { CategoriesService } from '../categories/categories.service';
 import { resolveLegacyCategory } from '../categories/category-resolver';
 
@@ -41,7 +42,8 @@ export class ExpensesService {
 
     if (targetId === 'default_bank') {
       const defaultAcc = this.accountsRepository.create({
-        id: 'default_bank',
+        id: await ownAccountId(this.accountsRepository, userId, 'default_bank'),
+        clientId: 'default_bank',
         userId,
         name: 'Default Bank Account',
         type: AccountType.BANK,
@@ -53,7 +55,7 @@ export class ExpensesService {
         isDeleted: false,
       });
       await this.accountsRepository.save(defaultAcc);
-      return 'default_bank';
+      return defaultAcc.id;
     }
 
     throw new BadRequestException(`Account with id '${targetId}' not found for user`);

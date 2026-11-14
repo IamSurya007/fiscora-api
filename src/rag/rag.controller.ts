@@ -1,4 +1,4 @@
-import { Body, Controller, Post, UseGuards, Req } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Post, UseGuards, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AskDto, AskResponseDto } from './dto/ask.dto';
 import { IngestDocumentDto } from './dto/ingest-document.dto';
@@ -55,9 +55,22 @@ export class RagController {
     };
   }
 
+  /**
+   * Writes to the knowledge base every user's answers draw on, so only admins
+   * may call it. Admins are listed by Firebase uid in RAG_ADMIN_UIDS
+   * (comma-separated); when unset, nobody can ingest.
+   */
   @Post('ingest')
   @UseGuards(AuthGuard)
-  async ingest(@Body() dto: IngestDocumentDto) {
+  async ingest(@Body() dto: IngestDocumentDto, @Req() req: any) {
+    const uid: string | undefined = req.user?.sub; // Firebase uid from the verified token
+    const admins = (process.env.RAG_ADMIN_UIDS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!uid || !admins.includes(uid)) {
+      throw new ForbiddenException('Only admins can ingest documents');
+    }
     return this.ingestion.ingest(dto);
   }
 }

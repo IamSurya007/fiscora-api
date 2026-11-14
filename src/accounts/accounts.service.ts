@@ -5,6 +5,7 @@ import { Account } from '../database/entities/account.entity';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { UpdateAccountDto } from './dto/update-account.dto';
 import { AccountType } from '../database/enums';
+import { ownAccountId } from './account-id.util';
 
 @Injectable()
 export class AccountsService {
@@ -23,7 +24,8 @@ export class AccountsService {
 
     if (!account) {
       account = this.accountsRepository.create({
-        id: 'default_bank',
+        id: await ownAccountId(this.accountsRepository, userId, 'default_bank'),
+        clientId: 'default_bank',
         userId,
         name: 'Default Bank Account',
         type: AccountType.BANK,
@@ -62,6 +64,7 @@ export class AccountsService {
   async create(userId: string, dto: CreateAccountDto): Promise<Account> {
     const account = this.accountsRepository.create({
       ...dto,
+      id: await ownAccountId(this.accountsRepository, userId, dto.id),
       userId,
       type: dto.type || AccountType.BANK,
       currentBalance: dto.currentBalance ?? 0,
