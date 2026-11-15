@@ -10,6 +10,12 @@ import { Investment } from '../database/entities/investment.entity';
 import { encrypt, decrypt, encryptV2, decryptV2 } from '../utils/crypto';
 import { ConnectSheetsDto, ExchangeSheetsCodeDto } from './dto/connect-sheets.dto';
 import { currentIstMonth, istMonthRange, isIncome, isSpend } from '../utils/ledger';
+import { Account } from '../database/entities/account.entity';
+import { CategoriesService } from '../categories/categories.service';
+import {
+  ACCOUNT_HEADER, INVESTMENT_HEADER, LOAN_HEADER, Row, TAB, TRANSACTION_HEADER,
+  accountRows, columnLetter, investmentRows, loanRows, mergeById, range, transactionRows,
+} from './sheets-export';
 
 /**
  * Sheets evaluates USER_ENTERED strings, so a merchant or note such as
@@ -36,6 +42,9 @@ export class SheetsService {
     private readonly loansRepository: Repository<Loan>,
     @InjectRepository(Investment)
     private readonly investmentsRepository: Repository<Investment>,
+    @InjectRepository(Account)
+    private readonly accountsRepository: Repository<Account>,
+    private readonly categoriesService: CategoriesService,
     private readonly config: ConfigService,
   ) {}
 
@@ -189,100 +198,62 @@ export class SheetsService {
     const accessToken = await this.refreshAccessToken(decryptedToken);
     const spreadsheetId = user.sheetsId;
 
-    // Fetch user data
-    const expenses = await this.expensesRepository.find({
-      where: { userId, isDeleted: false },
-      order: { date: 'DESC' },
-    });
+    const [expenses, loans, investments, accounts, names] = await Promise.all([
+      this.expensesRepository.find({ where: { userId, isDeleted: false }, order: { date: 'ASC' } }),
+      this.loansRepository.find({ where: { userId, isDeleted: false }, order: { createdAt: 'ASC' } }),
+      this.investmentsRepository.find({ where: { userId, isDeleted: false }, order: { startDate: 'ASC' } }),
+      this.accountsRepository.find({ where: { userId, isDeleted: false }, order: { createdAt: 'ASC' } }),
+      this.categoriesService.namesForUser(userId),
+    ]);
 
-    const loans = await this.loansRepository.find({
-      where: { userId, isDeleted: false },
-      order: { createdAt: 'DESC' },
-    });
+    // Transactions store the id devices know an account by (clientId or id).
+    const accountNames = new Map<string, string>();
+    for (const a of accounts) {
+      accountNames.set(a.id, a.name);
+      if (a.clientId) accountNames.set(a.clientId, a.name);
+    }
+    const accountName = (id: string | null | undefined) => (id ? accountNames.get(id) ?? id : '');
 
-    const investments = await this.investmentsRepository.find({
-      where: { userId, isDeleted: false },
-      order: { startDate: 'DESC' },
-    });
-
-    // Ensure required tabs exist
-    await this.ensureSheetTabsExist(spreadsheetId, accessToken);
-
-    // Prepare tab data
-    const expensesData = [
-      ['Date', 'Category', 'Amount', 'Note', 'Method', 'Merchant'],
-      ...expenses.map(e => [
-        e.date.toISOString().substring(0, 10),
-        e.category,
-        e.amount,
-        e.note || '',
-        e.method,
-        e.merchant || '',
-      ]),
+    const tabs: { tab: string; header: Row; rows: Map<string, Row> }[] = [
+      { tab: TAB.transactions, header: TRANSACTION_HEADER, rows: transactionRows(expenses, names, accountName) },
+      { tab: TAB.accounts, header: ACCOUNT_HEADER, rows: accountRows(accounts) },
+      { tab: TAB.loans, header: LOAN_HEADER, rows: loanRows(loans) },
+      { tab: TAB.investments, header: INVESTMENT_HEADER, rows: investmentRows(investments) },
     ];
 
-    const loansData = [
-      ['Type', 'Name', 'Principal', 'Total', 'Repayment Date', 'Status'],
-      ...loans.map(l => [
-        l.type,
-        l.name,
-        l.principal,
-        l.total,
-        l.repaymentDate ? l.repaymentDate.toISOString().substring(0, 10) : '',
-        l.status,
-      ]),
-    ];
+    await this.ensureSheetTabsExist(spreadsheetId, accessToken, [...tabs.map((t) => t.tab), TAB.monthly]);
 
-    const investmentsData = [
-      ['Name', 'Type', 'Monthly Amount', 'Principal', 'Maturity Amount', 'Duration', 'Maturity Date', 'Institution'],
-      ...investments.map(i => [
-        i.name,
-        i.type,
-        i.monthlyAmount,
-        i.principal,
-        i.maturityAmount,
-        i.durationMonths,
-        i.maturityDate.toISOString().substring(0, 10),
-        i.institution || '',
-      ]),
-    ];
-
-    const summaryData = await this.getSummaryData(userId);
-
-    // Clear worksheets
-    await axios.post(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchClear`,
+    // Read what is in Fiscora's own columns now, then merge by ID so existing
+    // rows keep their place and the user's extra columns stay aligned.
+    const auth = { headers: { Authorization: `Bearer ${accessToken}` } };
+    const current = await axios.get(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet`,
       {
-        ranges: [
-          'Expenses!A1:Z10000',
-          'Loans!A1:Z10000',
-          'Investments!A1:Z10000',
-          'Summary!A1:Z10000',
-        ],
+        ...auth,
+        params: { ranges: tabs.map((t) => range(t.tab, `A:${columnLetter(t.header.length)}`)) },
+        paramsSerializer: { indexes: null },
       },
-      { headers: { Authorization: `Bearer ${accessToken}` } },
     );
+    const existing: string[][][] = (current.data.valueRanges ?? []).map((v: any) => v.values ?? []);
 
-    // Batch update new data
+    const data = tabs.map((t, i) => ({
+      range: range(t.tab, 'A1'),
+      values: escapeFormulas(mergeById(t.header, existing[i] ?? [], t.rows)),
+    }));
+    // The monthly summary is derived, so Fiscora owns that whole tab.
+    data.push({ range: range(TAB.monthly, 'A1'), values: escapeFormulas(await this.getSummaryData(userId)) });
+
     await axios.post(
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
-      {
-        valueInputOption: 'USER_ENTERED',
-        data: [
-          { range: 'Expenses!A1', values: escapeFormulas(expensesData) },
-          { range: 'Loans!A1', values: escapeFormulas(loansData) },
-          { range: 'Investments!A1', values: escapeFormulas(investmentsData) },
-          { range: 'Summary!A1', values: escapeFormulas(summaryData) },
-        ],
-      },
-      { headers: { Authorization: `Bearer ${accessToken}` } },
+      { valueInputOption: 'USER_ENTERED', data },
+      auth,
     );
 
     user.lastSyncedAt = new Date();
     await this.usersRepository.save(user);
   }
 
-  private async ensureSheetTabsExist(spreadsheetId: string, accessToken: string): Promise<void> {
+  private async ensureSheetTabsExist(spreadsheetId: string, accessToken: string, requiredSheets: string[]): Promise<void> {
     try {
       const response = await axios.get(
         `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}`,
@@ -290,7 +261,6 @@ export class SheetsService {
       );
 
       const existingSheets = response.data.sheets.map((s: any) => s.properties.title);
-      const requiredSheets = ['Expenses', 'Loans', 'Investments', 'Summary'];
       const requests: any[] = [];
 
       for (const sheet of requiredSheets) {
@@ -317,7 +287,7 @@ export class SheetsService {
   }
 
   private async getSummaryData(userId: string): Promise<any[][]> {
-    const summaryRows: any[][] = [['Month', 'Income', 'Expenses', 'Balance']];
+    const summaryRows: any[][] = [['Month', 'Income', 'Spent', 'Net']];
 
     // Last 12 IST months, oldest first
     const [cy, cm] = currentIstMonth().split('-').map(Number);

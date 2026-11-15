@@ -6,9 +6,11 @@ import { Loan } from '../database/entities/loan.entity';
 import { Investment } from '../database/entities/investment.entity';
 import { SheetsService } from './sheets.service';
 import { SheetsController } from './sheets.controller';
+import { Account } from '../database/entities/account.entity';
+import { CategoriesModule } from '../categories/categories.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User, Expense, Loan, Investment])],
+  imports: [TypeOrmModule.forFeature([User, Expense, Loan, Investment, Account]), CategoriesModule],
   providers: [SheetsService],
   controllers: [SheetsController],
   exports: [SheetsService],
