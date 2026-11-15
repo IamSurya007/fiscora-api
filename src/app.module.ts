@@ -21,6 +21,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { BillsModule } from './bills/bills.module';
+import { InsightsModule } from './insights/insights.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { BillsModule } from './bills/bills.module';
     RagModule,
     CategoriesModule,
     BillsModule,
+    InsightsModule,
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

@@ -36,6 +36,11 @@ export class NotificationsService {
     }
   }
 
+  /** Arbitrary title/body push (e.g. the weekly recap). */
+  async sendCustom(userId: string, title: string, body: string): Promise<void> {
+    await this.sendNotification(userId, title, body);
+  }
+
   async sendBudgetAlert(userId: string, category: string, percentUsed: number): Promise<void> {
     const title = 'Budget Alert';
     const body = `You've used ${Math.round(percentUsed)}% of your ${category} budget this month`;
