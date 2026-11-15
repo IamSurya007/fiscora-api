@@ -10,6 +10,17 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { SheetsService } from '../sheets/sheets.service';
 import { LoanStatus } from '../database/enums';
 import { currentIstMonth, istMonthRange, isIncome, isSpend } from '../utils/ledger';
+import { nextDueRow } from '../loans/emi';
+
+/** Days before each EMI due date that the reminder goes out. */
+export const EMI_REMINDER_DAYS = 3;
+
+/** "YYYY-MM-DD" of the IST calendar day `days` after `now`. */
+export function istDatePlus(now: Date, days: number): string {
+  const shifted = new Date(now.getTime() + 330 * 60 * 1000);
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted.toISOString().substring(0, 10);
+}
 
 @Injectable()
 export class SchedulerService {
@@ -52,6 +63,7 @@ export class SchedulerService {
         status: Not(LoanStatus.PAID),
         reminderSent: false,
         repaymentDate: Not(IsNull()),
+        isEmi: false,
       },
     });
 
@@ -86,6 +98,41 @@ export class SchedulerService {
         loan.reminderSent = true;
         await this.loansRepository.save(loan);
       }
+    }
+  }
+
+  /**
+   * EMI loans get a reminder before every instalment, not just once: the next
+   * unpaid instalment (from the schedule and the repayment log) is checked, and
+   * emiReminderFor records which due date was already reminded.
+   */
+  // Runs every day at 9:00 AM IST (3:30 AM UTC)
+  @Cron('0 30 3 * * *')
+  async checkEmiReminders(now: Date = new Date()): Promise<void> {
+    this.logger.log('Running checkEmiReminders job...');
+    const target = istDatePlus(now, EMI_REMINDER_DAYS);
+
+    const emiLoans = await this.loansRepository.find({
+      where: {
+        status: Not(LoanStatus.PAID),
+        isEmi: true,
+        isDeleted: false,
+      },
+    });
+
+    for (const loan of emiLoans) {
+      const next = nextDueRow(loan);
+      if (!next || next.dueDate !== target || loan.emiReminderFor === next.dueDate) {
+        continue;
+      }
+      await this.notificationsService.sendLoanReminder(
+        loan.userId,
+        loan.name,
+        next.emi,
+        EMI_REMINDER_DAYS,
+      );
+      loan.emiReminderFor = next.dueDate;
+      await this.loansRepository.save(loan);
     }
   }
 
