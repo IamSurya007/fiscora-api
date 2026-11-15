@@ -30,7 +30,9 @@ export class UsersController {
 
   @Get('me')
   async getProfile(@CurrentUser('uid') userId: string) {
-    return this.usersService.findOne(userId);
+    // Never send stored credentials back, not even encrypted ones.
+    const { sheetsToken, fcmToken, ...profile } = (await this.usersService.findOne(userId)) as any;
+    return { ...profile, pushEnabled: !!fcmToken };
   }
 
   @Patch('me/fcm')
