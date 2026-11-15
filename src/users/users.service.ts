@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../database/entities/user.entity';
@@ -92,9 +92,15 @@ export class UsersService {
     return this.usersRepository.save(user);
   }
 
-  async delete(id: string): Promise<void> {
+  async recordConsent(id: string, version: string, isAdult: boolean): Promise<User> {
+    if (!isAdult) {
+      throw new BadRequestException('You must be 18 or older to use Fiscora.');
+    }
     const user = await this.findOne(id);
-    await this.usersRepository.remove(user);
+    user.consentVersion = version;
+    user.consentedAt = new Date();
+    user.isAdult = true;
+    return this.usersRepository.save(user);
   }
 
   private async getFirestoreCollection(collectionName: string, userId: string): Promise<any[]> {
