@@ -139,6 +139,12 @@ export class SyncService {
           monthlyAmount: typeof payload.monthlyAmount === 'string' ? parseFloat(payload.monthlyAmount) : (payload.monthlyAmount || 0),
           principal: typeof payload.principal === 'string' ? parseFloat(payload.principal) : (payload.principal || 0),
           maturityAmount: typeof payload.maturityAmount === 'string' ? parseFloat(payload.maturityAmount) : (payload.maturityAmount || 0),
+          ...(payload.currentValue !== undefined
+            ? {
+                currentValue: payload.currentValue === null ? null : Number(payload.currentValue),
+                valueUpdatedAt: payload.valueUpdatedAt ? new Date(payload.valueUpdatedAt) : new Date(),
+              }
+            : {}),
           durationMonths: typeof payload.durationMonths === 'string' ? parseInt(payload.durationMonths, 10) : (payload.durationMonths || 12),
           // The mobile app does not send a rate for investments: leave the
           // stored value alone (undefined is skipped by TypeORM on save).
@@ -242,6 +248,8 @@ export class SyncService {
           monthlyAmount: record.monthlyAmount,
           principal: record.principal,
           maturityAmount: record.maturityAmount,
+          currentValue: record.currentValue ?? null,
+          valueUpdatedAt: record.valueUpdatedAt ? new Date(record.valueUpdatedAt).toISOString() : null,
           durationMonths: record.durationMonths,
           interestRate: record.interestRate ?? 0,
           startDate: record.startDate instanceof Date

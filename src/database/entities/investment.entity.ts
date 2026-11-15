@@ -37,6 +37,14 @@ export class Investment {
   @Column('float')
   maturityAmount: number;
 
+  /** Latest market/current value the user entered (SIP/MF/stocks); null = not tracked. */
+  @Column('float', { nullable: true })
+  currentValue: number | null;
+
+  /** When currentValue was last updated. */
+  @Column({ type: 'timestamp', nullable: true })
+  valueUpdatedAt: Date | null;
+
   @Column('int')
   durationMonths: number;
 

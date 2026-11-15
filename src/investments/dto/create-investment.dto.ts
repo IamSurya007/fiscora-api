@@ -44,4 +44,10 @@ export class CreateInvestmentDto {
   @IsNumber()
   @Min(0)
   interestRate?: number;
+
+  /** Latest current/market value, e.g. from a fund statement. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  currentValue?: number;
 }

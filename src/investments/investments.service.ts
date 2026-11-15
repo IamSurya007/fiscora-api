@@ -90,6 +90,10 @@ export class InvestmentsService {
     // Bump the version so offline clients accept this edit on their next pull.
     investment.version = (investment.version || 1) + 1;
 
+    if (dto.currentValue !== undefined) {
+      (investment as any).currentValue = dto.currentValue;
+      (investment as any).valueUpdatedAt = new Date();
+    }
     return this.investmentsRepository.save(investment);
   }
 
