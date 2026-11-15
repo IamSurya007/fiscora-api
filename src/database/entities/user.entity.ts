@@ -35,6 +35,17 @@ export class User {
   @Column({ type: 'timestamp with time zone', nullable: true })
   lastSyncedAt: Date | null;
 
+  /** Version of the privacy notice the user consented to (DPDP). */
+  @Column({ type: 'varchar', nullable: true })
+  consentVersion: string | null;
+
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  consentedAt: Date | null;
+
+  /** 18+ self-declaration given with consent. */
+  @Column({ type: 'boolean', nullable: true })
+  isAdult: boolean | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

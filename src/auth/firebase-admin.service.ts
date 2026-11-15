@@ -37,4 +37,17 @@ export class FirebaseAdminService implements OnModuleInit {
     }
     return this.firebaseApp.auth().verifyIdToken(token);
   }
+
+  /** Permanently deletes the Firebase Auth user. A user that is already gone is not an error. */
+  async deleteUser(uid: string): Promise<void> {
+    if (!this.firebaseApp) {
+      throw new Error('Firebase Admin SDK is not initialized.');
+    }
+    try {
+      await this.firebaseApp.auth().deleteUser(uid);
+    } catch (err: any) {
+      if (err?.code === 'auth/user-not-found') return;
+      throw err;
+    }
+  }
 }
