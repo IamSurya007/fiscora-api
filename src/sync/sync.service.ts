@@ -109,6 +109,10 @@ export class SyncService {
           accountId: payload.accountId || 'default_bank',
           transferAccountId: payload.transferAccountId || null,
           needsReview: Boolean(payload.needsReview),
+          ...(Array.isArray(payload.splits) ? { splits: payload.splits.length ? payload.splits : null } : {}),
+          ...(payload.spreadMonths !== undefined
+            ? { spreadMonths: Math.min(24, Math.max(1, parseInt(payload.spreadMonths, 10) || 1)) }
+            : {}),
           ...(payload.scope === 'business' || payload.scope === 'personal' ? { scope: payload.scope } : {}),
           isCountedAsSpend,
           createdAt: payload.createdAt ? new Date(payload.createdAt) : undefined,
@@ -231,6 +235,8 @@ export class SyncService {
           accountId: record.accountId || 'default_bank',
           transferAccountId: record.transferAccountId || '',
           needsReview: Boolean(record.needsReview),
+          splits: record.splits ?? [],
+          spreadMonths: record.spreadMonths ?? 1,
           scope: record.scope ?? 'personal',
           isCountedAsSpend: record.isCountedAsSpend ?? true,
           createdAt: iso(record.createdAt),

@@ -83,3 +83,52 @@ export function isPersonalIncome(e: LedgerEntry): boolean {
 export function defaultScopeFor(ownership?: string | null): 'personal' | 'business' {
   return ownership === 'business' ? 'business' : 'personal';
 }
+
+/** One line of a split transaction (amounts are positive and add up to the total). */
+export interface SplitLine {
+  categoryId: string;
+  subcategoryId?: string | null;
+  amount: number;
+}
+
+export interface BudgetEntry extends LedgerEntry {
+  date: Date | string;
+  splits?: SplitLine[] | null;
+  /** Count the cost over this many months (1 = only the month it was paid). */
+  spreadMonths?: number | null;
+}
+
+/** Whole months from "YYYY-MM" a to b (b - a). */
+export function monthsBetween(a: string, b: string): number {
+  const [ay, am] = a.split('-').map(Number);
+  const [by, bm] = b.split('-').map(Number);
+  return (by - ay) * 12 + (bm - am);
+}
+
+/**
+ * The parent-category amounts of [e] that count towards [month]'s budgets.
+ * A split transaction counts in each of its categories; a spread one counts
+ * 1/n of its amount in each of the n months starting with the month it was
+ * paid (an annual insurance premium spread over 12 months, for example).
+ * The account balance is unaffected: this is only for budgets and reports.
+ */
+export function budgetParts(e: BudgetEntry, month: string): { categoryId: string; amount: number }[] {
+  if (!isPersonalSpend(e)) return [];
+  const n = Math.max(1, Math.floor(e.spreadMonths ?? 1));
+  const index = monthsBetween(istMonthOf(e.date), month);
+  if (index < 0 || index >= n) return [];
+  const share = e.amount / n;
+
+  const lines =
+    e.splits && e.splits.length > 0
+      ? e.splits.filter((l) => l && l.amount > 0)
+      : [{ categoryId: e.categoryId ?? resolveLegacyCategory(e.category).categoryId, amount: e.amount }];
+  const lineTotal = lines.reduce((t, l) => t + l.amount, 0) || 1;
+  return lines.map((l) => ({
+    categoryId: (l.categoryId || 'misc').split('.')[0],
+    amount: Math.round(((share * l.amount) / lineTotal) * 100) / 100,
+  }));
+}
+
+/** Longest spread allowed, so budget queries know how far back to look. */
+export const MAX_SPREAD_MONTHS = 24;

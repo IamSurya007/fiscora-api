@@ -10,6 +10,7 @@ import { LEGACY_CATEGORY_MAP } from '../categories/taxonomy.generated';
 import { istMonthOf, istMonthRange, isPersonalIncome, isPersonalSpend } from '../utils/ledger';
 import { carryInto, monthsBefore, safeToSpend } from './rollover';
 import { BillsService } from '../bills/bills.service';
+import { budgetParts, MAX_SPREAD_MONTHS } from '../utils/ledger';
 
 @Injectable()
 export class BudgetsService {
@@ -128,12 +129,18 @@ export class BudgetsService {
       },
     });
 
-    // Spend per parent category id (debits counted as spend only).
+    // Spend per parent category id. Split transactions count in each of their
+    // categories, and costs spread over several months (paid up to
+    // MAX_SPREAD_MONTHS ago) count their share in this month.
+    const spreadSince = istMonthRange(monthsBefore(month, MAX_SPREAD_MONTHS - 1)).start;
+    const candidates = await this.expensesRepository.find({
+      where: { userId, isDeleted: false, date: Between(spreadSince, new Date(end.getTime() - 1)) },
+    });
     const categorySpentMap = new Map<string, number>();
-    for (const exp of expenses) {
-      if (!isPersonalSpend(exp)) continue;
-      const key = exp.categoryId ?? resolveLegacyCategory(exp.category).categoryId;
-      categorySpentMap.set(key, (categorySpentMap.get(key) ?? 0) + exp.amount);
+    for (const exp of candidates) {
+      for (const part of budgetParts(exp, month)) {
+        categorySpentMap.set(part.categoryId, (categorySpentMap.get(part.categoryId) ?? 0) + part.amount);
+      }
     }
 
     // Rollover needs spend per category for the previous 12 months.
@@ -214,17 +221,22 @@ export class BudgetsService {
 
   /** Spend per "YYYY-MM|parentCategoryId" for months in [fromMonth, toMonth). */
   private async monthlySpend(userId: string, fromMonth: string, toMonth: string) {
-    const { start } = istMonthRange(fromMonth);
+    // Look back further so costs spread from earlier months are included.
+    const { start } = istMonthRange(monthsBefore(fromMonth, MAX_SPREAD_MONTHS - 1));
     const { start: end } = istMonthRange(toMonth);
     const rows = await this.expensesRepository.find({
       where: { userId, isDeleted: false, date: Between(start, new Date(end.getTime() - 1)) },
     });
+    const months: string[] = [];
+    for (let m = fromMonth; m < toMonth; m = monthsBefore(m, -1)) months.push(m);
     const out = new Map<string, number>();
     for (const e of rows) {
-      if (!isPersonalSpend(e)) continue;
-      const cat = (e.categoryId ?? resolveLegacyCategory(e.category).categoryId).split('.')[0];
-      const key = `${istMonthOf(e.date)}|${cat}`;
-      out.set(key, (out.get(key) ?? 0) + e.amount);
+      for (const m of months) {
+        for (const part of budgetParts(e, m)) {
+          const key = `${m}|${part.categoryId}`;
+          out.set(key, (out.get(key) ?? 0) + part.amount);
+        }
+      }
     }
     return out;
   }

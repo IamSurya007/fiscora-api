@@ -17,6 +17,15 @@ import { recomputeBalances } from '../accounts/account-balance';
 
 const TRANSFER_CATEGORY = { categoryId: 'transfers', subcategoryId: 'transfers.self' };
 
+/** Split lines must account for the whole transaction (to the paisa). */
+function assertSplitsAddUp(splits: { amount: number }[] | undefined, total: number) {
+  if (!splits || splits.length === 0) return;
+  const sum = splits.reduce((t, l) => t + l.amount, 0);
+  if (Math.abs(sum - total) > 0.01) {
+    throw new BadRequestException(`Split lines add up to ${sum}, not ${total}`);
+  }
+}
+
 @Injectable()
 export class ExpensesService {
   constructor(
@@ -102,6 +111,7 @@ export class ExpensesService {
       ? { categoryId: dto.categoryId, subcategoryId: dto.subcategoryId ?? null }
       : resolveLegacyCategory(dto.category, false);
 
+    assertSplitsAddUp(dto.splits, dto.amount);
     const { isCredit, transferAccountId, ...fields } = dto;
     const transferTo = await this.validateTransferTarget(userId, validAccountId, transferAccountId);
     const scope = dto.scope ?? (await this.defaultScope(userId, validAccountId));
@@ -254,6 +264,11 @@ export class ExpensesService {
       if (expense.transferAccountId) Object.assign(expense, TRANSFER_CATEGORY);
     }
     if (dto.scope !== undefined) expense.scope = dto.scope;
+    if (dto.splits !== undefined) {
+      assertSplitsAddUp(dto.splits, Math.abs(expense.amount));
+      expense.splits = dto.splits.length ? dto.splits : null;
+    }
+    if (dto.spreadMonths !== undefined) expense.spreadMonths = dto.spreadMonths;
     if (dto.needsReview !== undefined) expense.needsReview = dto.needsReview;
     // Editing a captured transaction is reviewing it.
     else if (expense.needsReview) expense.needsReview = false;

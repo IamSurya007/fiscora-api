@@ -77,3 +77,36 @@ describe('personal vs business', () => {
     expect(defaultScopeFor(undefined)).toBe('personal');
   });
 });
+
+describe('budgetParts', () => {
+  const { budgetParts } = require('./ledger');
+  const premium = { amount: 12000, categoryId: 'insurance', date: '2026-04-10T06:00:00Z', spreadMonths: 12 };
+
+  it('spreads a yearly cost evenly over its months', () => {
+    expect(budgetParts(premium, '2026-04')).toEqual([{ categoryId: 'insurance', amount: 1000 }]);
+    expect(budgetParts(premium, '2027-03')).toEqual([{ categoryId: 'insurance', amount: 1000 }]);
+    expect(budgetParts(premium, '2027-04')).toEqual([]);
+    expect(budgetParts(premium, '2026-03')).toEqual([]);
+  });
+
+  it('counts a split transaction in each category', () => {
+    const bill = {
+      amount: 3000,
+      categoryId: 'groceries',
+      date: '2026-11-05T06:00:00Z',
+      splits: [
+        { categoryId: 'groceries.supermarket', amount: 2000 },
+        { categoryId: 'shopping', amount: 1000 },
+      ],
+    };
+    expect(budgetParts(bill, '2026-11')).toEqual([
+      { categoryId: 'groceries', amount: 2000 },
+      { categoryId: 'shopping', amount: 1000 },
+    ]);
+  });
+
+  it('ignores business spend and transfers', () => {
+    expect(budgetParts({ ...premium, scope: 'business' }, '2026-04')).toEqual([]);
+    expect(budgetParts({ amount: 500, categoryId: 'transfers', date: '2026-04-10T06:00:00Z' }, '2026-04')).toEqual([]);
+  });
+});

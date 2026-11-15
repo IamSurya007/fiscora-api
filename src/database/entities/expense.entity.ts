@@ -72,6 +72,14 @@ export class Expense {
   @Column({ type: 'boolean', default: true })
   isCountedAsSpend: boolean;
 
+  /** Category lines of a split transaction: [{categoryId, subcategoryId?, amount}]. */
+  @Column({ type: 'jsonb', nullable: true })
+  splits: { categoryId: string; subcategoryId?: string | null; amount: number }[] | null;
+
+  /** Budgets count this cost over this many months (1 = just the month paid). */
+  @Column({ type: 'int', default: 1 })
+  spreadMonths: number;
+
   /** 'personal' or 'business' (for freelancers/owners using one account for both). */
   @Column({ type: 'varchar', default: 'personal' })
   scope: string;

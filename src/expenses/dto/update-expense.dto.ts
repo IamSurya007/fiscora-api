@@ -1,5 +1,6 @@
-import { IsEnum, IsNumber, IsOptional, IsString, MaxLength, Min, IsDateString, IsBoolean, IsIn } from 'class-validator';
-import { Transform } from 'class-transformer';
+import { IsEnum, IsNumber, IsOptional, IsString, MaxLength, Min, IsDateString, IsBoolean, IsIn, IsArray, ArrayMaxSize, ValidateNested, IsInt, Max } from 'class-validator';
+import { SplitLineDto } from './split-line.dto';
+import { Transform, Type } from 'class-transformer';
 import { PaymentMethod, ExpenseSource } from '../../database/enums';
 
 export class UpdateExpenseDto {
@@ -85,4 +86,19 @@ export class UpdateExpenseDto {
   @IsOptional()
   @IsIn(['personal', 'business'])
   scope?: 'personal' | 'business';
+
+  /** Split across categories; line amounts must add up to the amount. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => SplitLineDto)
+  splits?: SplitLineDto[];
+
+  /** Count this cost over 1-24 months in budgets (e.g. 12 for a yearly premium). */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(24)
+  spreadMonths?: number;
 }
