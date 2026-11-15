@@ -110,6 +110,9 @@ export class SyncService {
           transferAccountId: payload.transferAccountId || null,
           needsReview: Boolean(payload.needsReview),
           ...(payload.scope === 'business' || payload.scope === 'personal' ? { scope: payload.scope } : {}),
+          ...(payload.tdsAmount !== undefined
+            ? { tdsAmount: payload.tdsAmount === null || payload.tdsAmount === '' ? null : Number(payload.tdsAmount) || null }
+            : {}),
           isCountedAsSpend,
           createdAt: payload.createdAt ? new Date(payload.createdAt) : undefined,
         };
@@ -232,6 +235,7 @@ export class SyncService {
           transferAccountId: record.transferAccountId || '',
           needsReview: Boolean(record.needsReview),
           scope: record.scope ?? 'personal',
+          tdsAmount: record.tdsAmount ?? null,
           isCountedAsSpend: record.isCountedAsSpend ?? true,
           createdAt: iso(record.createdAt),
         };

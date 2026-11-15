@@ -23,6 +23,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { BillsModule } from './bills/bills.module';
 import { InsightsModule } from './insights/insights.module';
+import { TaxModule } from './tax/tax.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { InsightsModule } from './insights/insights.module';
     BillsModule,
     InsightsModule,
     NetworthModule,
+    TaxModule,
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

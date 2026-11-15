@@ -80,4 +80,10 @@ export class CreateExpenseDto {
   @IsOptional()
   @IsIn(['personal', 'business'])
   scope?: 'personal' | 'business';
+
+  /** TDS the payer deducted on this business receipt, in rupees (optional). */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  tdsAmount?: number | null;
 }
