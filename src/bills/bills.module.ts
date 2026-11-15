@@ -10,5 +10,6 @@ import { BillsService } from './bills.service';
   imports: [TypeOrmModule.forFeature([Expense, Account, Loan])],
   controllers: [BillsController],
   providers: [BillsService],
+  exports: [BillsService],
 })
 export class BillsModule {}

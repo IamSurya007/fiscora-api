@@ -155,6 +155,7 @@ export class SyncService {
           month: payload.month || '',
           category: this.normalizeBudgetCategory(payload.category),
           limit: typeof payload.limit === 'string' ? parseFloat(payload.limit) : (payload.limit || 0),
+          ...(payload.rollover !== undefined ? { rollover: Boolean(payload.rollover) } : {}),
           createdAt: payload.createdAt ? new Date(payload.createdAt) : undefined,
         };
       case 'category_rule': {
@@ -256,6 +257,7 @@ export class SyncService {
           month: record.month,
           category: record.category,
           limit: record.limit,
+          rollover: Boolean(record.rollover),
         };
       case 'category_rule':
         return {

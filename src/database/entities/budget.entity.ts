@@ -28,6 +28,10 @@ export class Budget {
   @Column('float')
   limit: number;
 
+  /** Carry unspent (or overspent) amounts into following months. */
+  @Column({ type: 'boolean', default: false })
+  rollover: boolean;
+
   @Column({ type: 'varchar', nullable: true })
   @Index()
   clientId: string | null;

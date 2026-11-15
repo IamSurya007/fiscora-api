@@ -5,9 +5,10 @@ import { Expense } from '../database/entities/expense.entity';
 import { BudgetsService } from './budgets.service';
 import { BudgetsController } from './budgets.controller';
 import { CategoriesModule } from '../categories/categories.module';
+import { BillsModule } from '../bills/bills.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Budget, Expense]), CategoriesModule],
+  imports: [TypeOrmModule.forFeature([Budget, Expense]), CategoriesModule, BillsModule],
   providers: [BudgetsService],
   controllers: [BudgetsController],
   exports: [BudgetsService],

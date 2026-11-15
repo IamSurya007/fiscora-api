@@ -1,4 +1,4 @@
-import { IsArray, IsNotEmpty, IsNumber, IsString, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class SingleBudgetDto {
@@ -9,6 +9,10 @@ export class SingleBudgetDto {
   @IsNumber()
   @Min(0)
   limit: number;
+
+  @IsOptional()
+  @IsBoolean()
+  rollover?: boolean;
 }
 
 export class UpsertBudgetDto {
