@@ -19,6 +19,7 @@ import { AccountsModule } from './accounts/accounts.module';
 import { RagModule } from './rag/rag.module';
 import { CategoriesModule } from './categories/categories.module';
 import { NetworthModule } from './networth/networth.module';
+import { BusinessModule } from './business/business.module';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { BillsModule } from './bills/bills.module';
@@ -43,6 +44,7 @@ import { InsightsModule } from './insights/insights.module';
     BillsModule,
     InsightsModule,
     NetworthModule,
+    BusinessModule,
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

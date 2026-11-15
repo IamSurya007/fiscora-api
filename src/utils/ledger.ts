@@ -40,6 +40,8 @@ export interface LedgerEntry {
   isCountedAsSpend?: boolean | null;
   categoryId?: string | null;
   category?: string | null;
+  /** 'personal' (default) or 'business'. */
+  scope?: string | null;
 }
 
 /** Transfers between the user's own accounts are neither spend nor income. */
@@ -57,4 +59,27 @@ export function isSpend(e: LedgerEntry): boolean {
 /** Credits that count as income (refunds and salary alike; transfers excluded). */
 export function isIncome(e: LedgerEntry): boolean {
   return e.amount < 0 && !isTransfer(e);
+}
+
+/**
+ * Personal views (home totals, budgets, insights) leave out business-scope
+ * transactions; those belong to the business P&L instead.
+ */
+export function isPersonal(e: LedgerEntry): boolean {
+  return (e.scope ?? 'personal') !== 'business';
+}
+
+/** Spend that counts in the user's personal totals and budgets. */
+export function isPersonalSpend(e: LedgerEntry): boolean {
+  return isSpend(e) && isPersonal(e);
+}
+
+/** Income that counts in the user's personal totals. */
+export function isPersonalIncome(e: LedgerEntry): boolean {
+  return isIncome(e) && isPersonal(e);
+}
+
+/** Scope for a new transaction that didn't specify one, from its account's ownership. */
+export function defaultScopeFor(ownership?: string | null): 'personal' | 'business' {
+  return ownership === 'business' ? 'business' : 'personal';
 }

@@ -9,7 +9,7 @@ import { Expense } from '../database/entities/expense.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SheetsService } from '../sheets/sheets.service';
 import { LoanStatus } from '../database/enums';
-import { currentIstMonth, istMonthRange, isIncome, isSpend } from '../utils/ledger';
+import { currentIstMonth, istMonthRange, isPersonalIncome, isPersonalSpend } from '../utils/ledger';
 import { nextDueRow } from '../loans/emi';
 
 /** Days before each EMI due date that the reminder goes out. */
@@ -198,8 +198,8 @@ export class SchedulerService {
         },
       });
 
-      const totalExpenses = expenses.filter(isSpend).reduce((sum, e) => sum + e.amount, 0);
-      const totalIncome = expenses.filter(isIncome).reduce((sum, e) => sum - e.amount, 0);
+      const totalExpenses = expenses.filter(isPersonalSpend).reduce((sum, e) => sum + e.amount, 0);
+      const totalIncome = expenses.filter(isPersonalIncome).reduce((sum, e) => sum - e.amount, 0);
       const balance = totalIncome - totalExpenses;
 
       await this.notificationsService.sendMonthlySummary(user.id, monthName, balance);
