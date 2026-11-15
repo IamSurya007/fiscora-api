@@ -9,6 +9,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { istMonthRange } from '../utils/ledger';
 import { monthsBefore } from '../budgets/rollover';
 import { monthReview, weeklyRecap } from './review';
+import { withCronLock } from '../utils/cron-lock';
 
 const DAY = 86_400_000;
 
@@ -59,11 +60,7 @@ export class InsightsService {
    */
   @Cron('0 30 3 * * 0')
   async sendWeeklyRecaps(): Promise<void> {
-    const [{ locked }] = await this.dataSource.query(
-      "SELECT pg_try_advisory_lock(hashtext('cron:weekly-recap')) AS locked",
-    );
-    if (!locked) return;
-    try {
+    await withCronLock(this.dataSource, 'weekly-recap', async () => {
       const users = await this.users.find({ where: { fcmToken: Not(IsNull()) } });
       for (const u of users) {
         try {
@@ -73,8 +70,6 @@ export class InsightsService {
           this.logger.warn(`Weekly recap failed for a user: ${(e as Error).message}`);
         }
       }
-    } finally {
-      await this.dataSource.query("SELECT pg_advisory_unlock(hashtext('cron:weekly-recap'))");
-    }
+    });
   }
 }

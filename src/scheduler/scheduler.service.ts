@@ -11,6 +11,9 @@ import { SheetsService } from '../sheets/sheets.service';
 import { LoanStatus } from '../database/enums';
 import { currentIstMonth, istMonthRange, isIncome, isSpend } from '../utils/ledger';
 import { nextDueRow } from '../loans/emi';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { withCronLock } from '../utils/cron-lock';
 
 /** Days before each EMI due date that the reminder goes out. */
 export const EMI_REMINDER_DAYS = 3;
@@ -37,7 +40,36 @@ export class SchedulerService {
     private readonly expensesRepository: Repository<Expense>,
     private readonly notificationsService: NotificationsService,
     private readonly sheetsService: SheetsService,
+    @InjectDataSource()
+    private readonly dataSource?: DataSource,
   ) {}
+
+  // ── Cron triggers: each job runs on one instance only (see withCronLock) ──
+
+  @Cron('0 30 3 * * *')
+  async cron_checkLoanReminders(): Promise<void> {
+    await withCronLock(this.dataSource!, 'checkLoanReminders', () => this.checkLoanReminders());
+  }
+
+  @Cron('0 30 3 * * *')
+  async cron_checkEmiReminders(): Promise<void> {
+    await withCronLock(this.dataSource!, 'checkEmiReminders', () => this.checkEmiReminders());
+  }
+
+  @Cron('0 30 3 * * *')
+  async cron_checkMaturityReminders(): Promise<void> {
+    await withCronLock(this.dataSource!, 'checkMaturityReminders', () => this.checkMaturityReminders());
+  }
+
+  @Cron('0 30 2 1 * *')
+  async cron_sendMonthlyDigest(): Promise<void> {
+    await withCronLock(this.dataSource!, 'sendMonthlyDigest', () => this.sendMonthlyDigest());
+  }
+
+  @Cron('0 0 3 1 * *')
+  async cron_autoSyncSheets(): Promise<void> {
+    await withCronLock(this.dataSource!, 'autoSyncSheets', () => this.autoSyncSheets());
+  }
 
   private isSameDay(d1: Date, d2: Date): boolean {
     return (
@@ -48,7 +80,6 @@ export class SchedulerService {
   }
 
   // Runs every day at 9:00 AM IST (3:30 AM UTC)
-  @Cron('0 30 3 * * *')
   async checkLoanReminders(): Promise<void> {
     this.logger.log('Running checkLoanReminders job...');
     const today = new Date();
@@ -107,7 +138,6 @@ export class SchedulerService {
    * emiReminderFor records which due date was already reminded.
    */
   // Runs every day at 9:00 AM IST (3:30 AM UTC)
-  @Cron('0 30 3 * * *')
   async checkEmiReminders(now: Date = new Date()): Promise<void> {
     this.logger.log('Running checkEmiReminders job...');
     const target = istDatePlus(now, EMI_REMINDER_DAYS);
@@ -137,7 +167,6 @@ export class SchedulerService {
   }
 
   // Runs every day at 9:00 AM IST (3:30 AM UTC)
-  @Cron('0 30 3 * * *')
   async checkMaturityReminders(): Promise<void> {
     this.logger.log('Running checkMaturityReminders job...');
     const today = new Date();
@@ -175,7 +204,6 @@ export class SchedulerService {
   }
 
   // Runs on 1st of every month at 8:00 AM IST (2:30 AM UTC)
-  @Cron('0 30 2 1 * *')
   async sendMonthlyDigest(): Promise<void> {
     this.logger.log('Running sendMonthlyDigest job...');
     const users = await this.usersRepository.find({
@@ -207,7 +235,6 @@ export class SchedulerService {
   }
 
   // Runs on 1st of every month at 8:30 AM IST (3:00 AM UTC)
-  @Cron('0 0 3 1 * *')
   async autoSyncSheets(): Promise<void> {
     this.logger.log('Running autoSyncSheets job...');
     const connectedUsers = await this.usersRepository.find({
