@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, LessThan, Like } from 'typeorm';
+import { Repository, Between, ILike, LessThan, Like } from 'typeorm';
 import { Expense } from '../database/entities/expense.entity';
 import { Budget } from '../database/entities/budget.entity';
 import { Account } from '../database/entities/account.entity';
@@ -116,6 +116,7 @@ export class ExpensesService {
   }
 
   async findAll(userId: string, query: QueryExpenseDto): Promise<Expense[]> {
+    if (query.q && query.q.trim()) return this.search(userId, query);
     const { start, end } = istMonthRange(query.month);
 
     const whereConditions: any = {
@@ -174,6 +175,30 @@ export class ExpensesService {
         id: 'DESC',
       },
       take: query.limit,
+    });
+  }
+
+  /** Search across all months, newest first. Numbers also match the exact amount (either sign). */
+  private async search(userId: string, query: QueryExpenseDto): Promise<Expense[]> {
+    const term = query.q!.trim();
+    // Escape LIKE wildcards so "50%" searches for the text, not a pattern.
+    const like = ILike(`%${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%`);
+    const base: any = { userId, isDeleted: false };
+    if (query.needsReview) base.needsReview = true;
+    const where: any[] = [
+      { ...base, merchant: like },
+      { ...base, note: like },
+      { ...base, category: like },
+      { ...base, subcategory: like },
+    ];
+    const amount = Number(term.replace(/[₹,\s]/g, ''));
+    if (Number.isFinite(amount) && amount > 0) {
+      where.push({ ...base, amount }, { ...base, amount: -amount });
+    }
+    return this.expensesRepository.find({
+      where,
+      order: { date: 'DESC', id: 'DESC' },
+      take: Math.min(query.limit ?? 50, 100),
     });
   }
 

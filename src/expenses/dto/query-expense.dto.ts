@@ -1,12 +1,20 @@
-import { IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString, Matches, IsInt, Min, Max } from 'class-validator';
+import { IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString, Matches, IsInt, Min, Max, ValidateIf, MaxLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ExpenseSource } from '../../database/enums';
 
 export class QueryExpenseDto {
+  /** Required unless `q` is given (a search spans all months). */
+  @ValidateIf((o) => !o.q)
   @IsString()
   @IsNotEmpty()
   @Matches(/^\d{4}-\d{2}$/, { message: 'Month must be in YYYY-MM format' })
   month: string;
+
+  /** Free-text search over merchant, note and category, or an exact amount. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
 
   /** Legacy: exact category name. */
   @IsOptional()
