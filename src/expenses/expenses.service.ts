@@ -215,6 +215,7 @@ export class ExpensesService {
       expense.transferAccountId = await this.validateTransferTarget(userId, expense.accountId, dto.transferAccountId);
       if (expense.transferAccountId) Object.assign(expense, TRANSFER_CATEGORY);
     }
+    if (dto.scope !== undefined) expense.scope = dto.scope;
     if (dto.needsReview !== undefined) expense.needsReview = dto.needsReview;
     // Editing a captured transaction is reviewing it.
     else if (expense.needsReview) expense.needsReview = false;

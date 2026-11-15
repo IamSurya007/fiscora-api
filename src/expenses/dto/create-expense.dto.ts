@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, MaxLength, Min, IsDateString, IsBoolean } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, MaxLength, Min, IsDateString, IsBoolean, IsIn } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { PaymentMethod, ExpenseSource } from '../../database/enums';
 
@@ -75,4 +75,9 @@ export class CreateExpenseDto {
     return true;
   })
   isCountedAsSpend?: boolean;
+
+  /** 'personal' (default) or 'business'. */
+  @IsOptional()
+  @IsIn(['personal', 'business'])
+  scope?: 'personal' | 'business';
 }

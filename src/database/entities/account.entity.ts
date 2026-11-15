@@ -42,6 +42,13 @@ export class Account {
   @Column({ type: 'varchar', nullable: true })
   accountNumberLast4: string | null;
 
+  /**
+   * 'personal', 'business' or 'mixed'. New transactions default to the
+   * account's scope; captures on a mixed account ask "personal or business?".
+   */
+  @Column({ type: 'varchar', default: 'personal' })
+  ownership: string;
+
   /** Credit cards: day of month the statement is generated (1-31). */
   @Column({ type: 'int', nullable: true })
   statementDay: number | null;

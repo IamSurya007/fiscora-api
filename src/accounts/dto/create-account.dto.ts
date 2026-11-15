@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, MaxLength, Min, IsInt, Max } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, MaxLength, Min, IsInt, Max, IsIn } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { AccountType } from '../../database/enums';
 
@@ -46,4 +46,9 @@ export class CreateAccountDto {
   @Min(1)
   @Max(31)
   dueDay?: number;
+
+  /** 'personal' (default), 'business' or 'mixed'. */
+  @IsOptional()
+  @IsIn(['personal', 'business', 'mixed'])
+  ownership?: 'personal' | 'business' | 'mixed';
 }

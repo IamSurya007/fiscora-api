@@ -125,6 +125,7 @@ export class AccountsService {
     if (dto.accountNumberLast4 !== undefined) account.accountNumberLast4 = dto.accountNumberLast4;
     if (dto.statementDay !== undefined) account.statementDay = dto.statementDay;
     if (dto.dueDay !== undefined) account.dueDay = dto.dueDay;
+    if (dto.ownership !== undefined) account.ownership = dto.ownership;
     if (dto.colorValue !== undefined) account.colorValue = dto.colorValue;
 
     account.version = (account.version || 1) + 1;

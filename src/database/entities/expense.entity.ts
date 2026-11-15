@@ -72,6 +72,10 @@ export class Expense {
   @Column({ type: 'boolean', default: true })
   isCountedAsSpend: boolean;
 
+  /** 'personal' or 'business' (for freelancers/owners using one account for both). */
+  @Column({ type: 'varchar', default: 'personal' })
+  scope: string;
+
   /** Auto-captured (e.g. from SMS) and not yet confirmed by the user. */
   @Column({ type: 'boolean', default: false })
   needsReview: boolean;

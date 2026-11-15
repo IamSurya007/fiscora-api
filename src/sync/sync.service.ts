@@ -109,6 +109,7 @@ export class SyncService {
           accountId: payload.accountId || 'default_bank',
           transferAccountId: payload.transferAccountId || null,
           needsReview: Boolean(payload.needsReview),
+          ...(payload.scope === 'business' || payload.scope === 'personal' ? { scope: payload.scope } : {}),
           isCountedAsSpend,
           createdAt: payload.createdAt ? new Date(payload.createdAt) : undefined,
         };
@@ -124,6 +125,7 @@ export class SyncService {
             : {}),
           creditLimit: typeof payload.creditLimit === 'string' ? parseFloat(payload.creditLimit) : (payload.creditLimit || 0),
           accountNumberLast4: payload.accountNumberLast4 || null,
+          ...(['personal', 'business', 'mixed'].includes(payload.ownership) ? { ownership: payload.ownership } : {}),
           statementDay: payload.statementDay ?? null,
           dueDay: payload.dueDay ?? null,
           colorValue: typeof payload.colorValue === 'string' ? parseInt(payload.colorValue, 10) : (payload.colorValue !== undefined ? payload.colorValue : 4280962800),
@@ -229,6 +231,7 @@ export class SyncService {
           accountId: record.accountId || 'default_bank',
           transferAccountId: record.transferAccountId || '',
           needsReview: Boolean(record.needsReview),
+          scope: record.scope ?? 'personal',
           isCountedAsSpend: record.isCountedAsSpend ?? true,
           createdAt: iso(record.createdAt),
         };
@@ -241,6 +244,7 @@ export class SyncService {
           openingBalance: record.openingBalance,
           creditLimit: record.creditLimit,
           accountNumberLast4: record.accountNumberLast4 || '',
+          ownership: record.ownership ?? 'personal',
           statementDay: record.statementDay ?? null,
           dueDay: record.dueDay ?? null,
           colorValue: record.colorValue,
