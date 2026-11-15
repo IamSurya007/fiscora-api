@@ -107,6 +107,10 @@ describe('AccountDataService', () => {
 
       expect(calls).toEqual([
         'begin',
+        'delete:LedgerEntry',
+        'delete:Invoice',
+        'delete:Party',
+        'delete:BusinessProfile',
         'delete:ChatMessage',
         'delete:ChatConversation',
         'delete:Expense',
