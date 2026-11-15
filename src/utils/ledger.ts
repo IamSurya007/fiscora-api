@@ -26,6 +26,15 @@ export function currentIstMonth(): string {
   return istMonthOf(new Date());
 }
 
+/** "YYYY-MM-DD" of the IST calendar day containing `date`. */
+export function istDateOf(date: Date | string): string {
+  return new Date(new Date(date).getTime() + IST_OFFSET_MS).toISOString().substring(0, 10);
+}
+
+export function currentIstDate(): string {
+  return istDateOf(new Date());
+}
+
 export interface LedgerEntry {
   amount: number; // positive = money out (debit), negative = money in (credit)
   isCountedAsSpend?: boolean | null;
