@@ -14,8 +14,17 @@ import { ownAccountId } from '../accounts/account-id.util';
 import { openingForTarget, recomputeBalances } from '../accounts/account-balance';
 import { ExpensesService } from '../expenses/expenses.service';
 import { currentIstMonth, istMonthOf } from '../utils/ledger';
+import { normalizeRepayments } from '../loans/emi';
 
 const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : d);
+
+/** undefined stays undefined (field not sent); '' / null -> null; strings parsed. */
+const optNum = (v: unknown, parse: (s: string) => number): number | null | undefined => {
+  if (v === undefined) return undefined;
+  if (v === null || v === '') return null;
+  const n = typeof v === 'string' ? parse(v) : Number(v);
+  return Number.isFinite(n) ? n : null;
+};
 
 @Injectable()
 export class SyncService {
@@ -128,6 +137,16 @@ export class SyncService {
           repaymentDate: payload.repaymentDate ? new Date(payload.repaymentDate) : null,
           status: payload.status || 'ACTIVE',
           notes: payload.notes || null,
+          // EMI fields: a client that predates them omits the keys, and
+          // undefined leaves the stored values alone (TypeORM skips it).
+          isEmi: payload.isEmi === undefined ? undefined : Boolean(payload.isEmi),
+          emiAmount: optNum(payload.emiAmount, parseFloat),
+          tenureMonths: optNum(payload.tenureMonths, (v) => parseInt(v, 10)),
+          emiStartDate: payload.emiStartDate === undefined
+            ? undefined
+            : (payload.emiStartDate ? String(payload.emiStartDate).substring(0, 10) : null),
+          emiDayOfMonth: optNum(payload.emiDayOfMonth, (v) => parseInt(v, 10)),
+          repayments: payload.repayments === undefined ? undefined : normalizeRepayments(payload.repayments),
           createdAt: payload.createdAt ? new Date(payload.createdAt) : undefined,
         };
       case 'investment':
@@ -228,6 +247,16 @@ export class SyncService {
             : (record.repaymentDate ? record.repaymentDate.substring(0, 10) : null),
           status: record.status,
           notes: record.notes || '',
+          isEmi: Boolean(record.isEmi),
+          emiAmount: record.emiAmount ?? null,
+          tenureMonths: record.tenureMonths ?? null,
+          emiStartDate: record.emiStartDate
+            ? (record.emiStartDate instanceof Date
+              ? record.emiStartDate.toISOString().substring(0, 10)
+              : String(record.emiStartDate).substring(0, 10))
+            : null,
+          emiDayOfMonth: record.emiDayOfMonth ?? null,
+          repayments: record.repayments ?? [],
           createdAt: iso(record.createdAt),
         };
       case 'investment':

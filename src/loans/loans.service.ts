@@ -5,6 +5,20 @@ import { Loan } from '../database/entities/loan.entity';
 import { CreateLoanDto } from './dto/create-loan.dto';
 import { UpdateLoanDto } from './dto/update-loan.dto';
 import { LoanType, LoanStatus } from '../database/enums';
+import { AddLoanRepaymentDto } from './dto/loan-repayment.dto';
+import { nextDueRow, normalizeRepayments, outstanding, toDateOnly } from './emi';
+import { randomUUID } from 'crypto';
+
+/**
+ * After the repayment log changes: fully repaid -> PAID; a PAID loan that
+ * now has money outstanding (a repayment was removed) goes back to ACTIVE.
+ */
+export function statusAfterRepayments(loan: Loan): LoanStatus {
+  const left = outstanding(loan);
+  if (left <= 0) return LoanStatus.PAID;
+  if (loan.status === LoanStatus.PAID) return LoanStatus.ACTIVE;
+  return loan.status;
+}
 
 @Injectable()
 export class LoansService {
@@ -18,7 +32,11 @@ export class LoansService {
       ...dto,
       userId,
       repaymentDate: dto.repaymentDate ? new Date(dto.repaymentDate) : null,
+      isEmi: dto.isEmi ?? false,
+      emiStartDate: dto.emiStartDate ? toDateOnly(dto.emiStartDate) : null,
+      repayments: normalizeRepayments(dto.repayments),
     });
+    if (loan.repayments?.length) loan.status = statusAfterRepayments(loan);
     return this.loansRepository.save(loan);
   }
 
@@ -60,9 +78,33 @@ export class LoansService {
     if (dto.status !== undefined) loan.status = dto.status;
     if (dto.notes !== undefined) loan.notes = dto.notes;
     if (dto.interestRate !== undefined) loan.interestRate = dto.interestRate;
+    if (dto.isEmi !== undefined) loan.isEmi = dto.isEmi;
+    if (dto.emiAmount !== undefined) loan.emiAmount = dto.emiAmount;
+    if (dto.tenureMonths !== undefined) loan.tenureMonths = dto.tenureMonths;
+    if (dto.emiStartDate !== undefined) {
+      loan.emiStartDate = dto.emiStartDate ? toDateOnly(dto.emiStartDate) : null;
+    }
+    if (dto.emiDayOfMonth !== undefined) loan.emiDayOfMonth = dto.emiDayOfMonth;
+    if (dto.repayments !== undefined) {
+      loan.repayments = normalizeRepayments(dto.repayments);
+      // An explicit status in the same request wins.
+      if (dto.status === undefined) loan.status = statusAfterRepayments(loan);
+    }
     // Bump the version so offline clients accept this edit on their next pull.
     loan.version = (loan.version || 1) + 1;
 
+    return this.loansRepository.save(loan);
+  }
+
+  /** Appends one repayment to the loan's log and updates its status. */
+  async addRepayment(userId: string, id: string, dto: AddLoanRepaymentDto): Promise<Loan> {
+    const loan = await this.findOne(userId, id);
+    loan.repayments = [
+      ...normalizeRepayments(loan.repayments),
+      ...normalizeRepayments([{ ...dto, id: dto.id || randomUUID() }]),
+    ];
+    loan.status = statusAfterRepayments(loan);
+    loan.version = (loan.version || 1) + 1;
     return this.loansRepository.save(loan);
   }
 
@@ -91,13 +133,26 @@ export class LoansService {
     today.setHours(0, 0, 0, 0);
 
     for (const loan of activeLoans) {
+      const left = Math.max(0, outstanding(loan));
       if (loan.type === LoanType.TAKEN) {
-        totalOwed += loan.total;
+        totalOwed += left;
       } else if (loan.type === LoanType.GIVEN) {
-        totalToReceive += loan.total;
+        totalToReceive += left;
       }
 
-      if (loan.repaymentDate) {
+      const nextEmi = loan.isEmi ? nextDueRow(loan) : null;
+      if (nextEmi) {
+        const due = new Date(`${nextEmi.dueDate}T00:00:00`);
+        const daysRemaining = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        upcomingRepayments.push({
+          id: loan.id,
+          name: loan.name,
+          total: nextEmi.emi,
+          repaymentDate: nextEmi.dueDate,
+          daysRemaining,
+          type: loan.type,
+        });
+      } else if (loan.repaymentDate) {
         const repayment = new Date(loan.repaymentDate);
         repayment.setHours(0, 0, 0, 0);
         const diffTime = repayment.getTime() - today.getTime();

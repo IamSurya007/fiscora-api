@@ -3,6 +3,7 @@ import { ApiBearerAuth } from '@nestjs/swagger';
 import { LoansService } from './loans.service';
 import { CreateLoanDto } from './dto/create-loan.dto';
 import { UpdateLoanDto } from './dto/update-loan.dto';
+import { AddLoanRepaymentDto } from './dto/loan-repayment.dto';
 import { LoanType, LoanStatus } from '../database/enums';
 import { CurrentUser } from '../auth/current-user.decorator';
 
@@ -48,6 +49,15 @@ export class LoansController {
     @Body() dto: UpdateLoanDto,
   ) {
     return this.loansService.update(userId, id, dto);
+  }
+
+  @Post(':id/repayments')
+  async addRepayment(
+    @CurrentUser('uid') userId: string,
+    @Param('id') id: string,
+    @Body() dto: AddLoanRepaymentDto,
+  ) {
+    return this.loansService.addRepayment(userId, id, dto);
   }
 
   @Delete(':id')
