@@ -25,6 +25,7 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 import { BillsModule } from './bills/bills.module';
 import { InsightsModule } from './insights/insights.module';
 import { TaxModule } from './tax/tax.module';
+import { BusinessLedgerModule } from './business-ledger/business-ledger.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { TaxModule } from './tax/tax.module';
     NetworthModule,
     BusinessModule,
     TaxModule,
+    BusinessLedgerModule,
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

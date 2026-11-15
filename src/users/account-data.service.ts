@@ -11,6 +11,10 @@ import { Category } from '../database/entities/category.entity';
 import { CategoryRule } from '../database/entities/category-rule.entity';
 import { ChatConversation } from '../database/entities/chat-conversation.entity';
 import { ChatMessage } from '../database/entities/chat-message.entity';
+import { Party } from '../business-ledger/entities/party.entity';
+import { LedgerEntry } from '../business-ledger/entities/ledger-entry.entity';
+import { Invoice } from '../business-ledger/entities/invoice.entity';
+import { BusinessProfile } from '../business-ledger/entities/business-profile.entity';
 import { FirebaseAdminService } from '../auth/firebase-admin.service';
 
 /**
@@ -19,6 +23,10 @@ import { FirebaseAdminService } from '../auth/firebase-admin.service';
  * cascade on delete, but deleting explicitly keeps us safe if one doesn't.
  */
 export const USER_DATA_DELETE_ORDER: EntityTarget<any>[] = [
+  LedgerEntry,
+  Invoice,
+  Party,
+  BusinessProfile,
   ChatMessage,
   ChatConversation,
   Expense,
