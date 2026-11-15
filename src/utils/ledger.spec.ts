@@ -1,4 +1,4 @@
-import { istMonthOf, istMonthRange, isIncome, isSpend, isTransfer } from './ledger';
+import { istDateOf, istMonthOf, istMonthRange, isIncome, isSpend, isTransfer } from './ledger';
 
 describe('IST months', () => {
   it('starts the month at 00:00 IST, i.e. 18:30 UTC the day before', () => {
@@ -31,5 +31,12 @@ describe('ledger classification', () => {
 
   it('honours the exclude-from-spend flag', () => {
     expect(isSpend({ amount: 500, categoryId: 'food', isCountedAsSpend: false })).toBe(false);
+  });
+});
+
+describe('IST dates', () => {
+  it('rolls over at 00:00 IST (18:30 UTC)', () => {
+    expect(istDateOf('2026-11-15T18:29:59.000Z')).toBe('2026-11-15');
+    expect(istDateOf('2026-11-15T18:30:00.000Z')).toBe('2026-11-16');
   });
 });

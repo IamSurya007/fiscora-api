@@ -18,6 +18,7 @@ import { SyncModule } from './sync/sync.module';
 import { AccountsModule } from './accounts/accounts.module';
 import { RagModule } from './rag/rag.module';
 import { CategoriesModule } from './categories/categories.module';
+import { NetworthModule } from './networth/networth.module';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
 
@@ -37,6 +38,7 @@ import { ThrottlerGuard } from '@nestjs/throttler';
     SyncModule,
     RagModule,
     CategoriesModule,
+    NetworthModule,
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
