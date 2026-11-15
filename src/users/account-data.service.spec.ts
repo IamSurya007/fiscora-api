@@ -120,6 +120,8 @@ describe('AccountDataService', () => {
         'delete:CategoryRule',
         'delete:Category',
         'delete:Account',
+        'delete:NetWorthSnapshot',
+        'delete:TaxProfile',
         'delete:User',
         'commit',
         'firebase',

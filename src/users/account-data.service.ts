@@ -16,6 +16,8 @@ import { LedgerEntry } from '../business-ledger/entities/ledger-entry.entity';
 import { Invoice } from '../business-ledger/entities/invoice.entity';
 import { BusinessProfile } from '../business-ledger/entities/business-profile.entity';
 import { FirebaseAdminService } from '../auth/firebase-admin.service';
+import { NetWorthSnapshot } from '../database/entities/net-worth-snapshot.entity';
+import { TaxProfile } from '../database/entities/tax-profile.entity';
 
 /**
  * Tables holding a user's rows, children before parents: chat messages
@@ -36,6 +38,8 @@ export const USER_DATA_DELETE_ORDER: EntityTarget<any>[] = [
   CategoryRule,
   Category,
   Account,
+  NetWorthSnapshot,
+  TaxProfile,
 ];
 
 /** DPDP data-principal rights: access (export) and erasure (delete). */
