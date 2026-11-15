@@ -43,3 +43,18 @@ describe('weeklyRecap', () => {
     expect(weeklyRecap([], [], names)).toBeNull();
   });
 });
+
+describe('monthReview with business transactions', () => {
+  it('leaves business-scope spend and revenue out of personal totals', () => {
+    const current = [
+      tx('salary', -100000, 'income'),
+      tx('swiggy', 6000, 'food'),
+      { ...tx('client', -40000, 'income'), scope: 'business' },
+      { ...tx('office', 9000, 'shopping'), scope: 'business' },
+    ];
+    const r = monthReview('2026-11', current, [], names);
+    expect(r.income).toBe(100000);
+    expect(r.spent).toBe(6000);
+    expect(r.biggest.map((b) => b.id)).toEqual(['swiggy']);
+  });
+});

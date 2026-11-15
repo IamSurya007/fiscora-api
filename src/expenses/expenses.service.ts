@@ -9,7 +9,7 @@ import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { QueryExpenseDto } from './dto/query-expense.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AccountType } from '../database/enums';
-import { currentIstMonth, istMonthOf, istMonthRange, isIncome, isSpend, LedgerEntry } from '../utils/ledger';
+import { currentIstMonth, istMonthOf, istMonthRange, isPersonalIncome, isPersonalSpend, LedgerEntry, defaultScopeFor } from '../utils/ledger';
 import { ownAccountId } from '../accounts/account-id.util';
 import { CategoriesService } from '../categories/categories.service';
 import { resolveLegacyCategory } from '../categories/category-resolver';
@@ -84,6 +84,17 @@ export class ExpensesService {
     throw new BadRequestException(`Account with id '${targetId}' not found for user`);
   }
 
+  /** Without an explicit scope, a business account's transactions are business. */
+  private async defaultScope(userId: string, accountId: string): Promise<'personal' | 'business'> {
+    const account = await this.accountsRepository.findOne({
+      where: [
+        { id: accountId, userId, isDeleted: false },
+        { clientId: accountId, userId, isDeleted: false },
+      ],
+    });
+    return defaultScopeFor(account?.ownership);
+  }
+
   async create(userId: string, dto: CreateExpenseDto): Promise<Expense> {
     const validAccountId = await this.validateAndGetAccountId(userId, dto.accountId);
 
@@ -93,8 +104,10 @@ export class ExpensesService {
 
     const { isCredit, transferAccountId, ...fields } = dto;
     const transferTo = await this.validateTransferTarget(userId, validAccountId, transferAccountId);
+    const scope = dto.scope ?? (await this.defaultScope(userId, validAccountId));
     const expense = this.expensesRepository.create({
       ...fields,
+      scope,
       amount: isCredit ? -dto.amount : dto.amount,
       transferAccountId: transferTo,
       ...(transferTo ? TRANSFER_CATEGORY : { categoryId: ids.categoryId, subcategoryId: ids.subcategoryId }),
@@ -305,11 +318,11 @@ export class ExpensesService {
       this.categoriesService.namesForUser(userId),
     ]);
 
-    const spendExpenses = expenses.filter(isSpend);
+    const spendExpenses = expenses.filter(isPersonalSpend);
 
     const totalExpenses = spendExpenses.reduce((sum, exp) => sum + exp.amount, 0);
     // Credits are stored as negative amounts; transfers are neither side.
-    const totalIncome = expenses.filter(isIncome).reduce((sum, exp) => sum - exp.amount, 0);
+    const totalIncome = expenses.filter(isPersonalIncome).reduce((sum, exp) => sum - exp.amount, 0);
     const balance = totalIncome - totalExpenses;
 
     // Group by parent category, with a subcategory breakdown.
@@ -364,7 +377,7 @@ export class ExpensesService {
    * instead of on every expense after 80%. Public so synced expenses alert too.
    */
   async checkBudgetAlert(userId: string, expense: LedgerEntry & { date: Date | string }): Promise<void> {
-    if (!isSpend(expense)) return;
+    if (!isPersonalSpend(expense)) return;
     const categoryId = (expense.categoryId ?? resolveLegacyCategory(expense.category).categoryId)?.split('.')[0];
     if (!categoryId) return;
     const month = istMonthOf(expense.date);
@@ -386,7 +399,7 @@ export class ExpensesService {
       ],
     });
 
-    const totalSpent = expenses.filter(isSpend).reduce((sum, exp) => sum + exp.amount, 0);
+    const totalSpent = expenses.filter(isPersonalSpend).reduce((sum, exp) => sum + exp.amount, 0);
     const percentNow = (totalSpent / budget.limit) * 100;
     const percentBefore = ((totalSpent - expense.amount) / budget.limit) * 100;
     const crossed = [100, 80].find(t => percentBefore < t && percentNow >= t);

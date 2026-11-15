@@ -7,7 +7,7 @@ import { UpsertBudgetDto } from './dto/upsert-budget.dto';
 import { CategoriesService } from '../categories/categories.service';
 import { resolveLegacyCategory, SYSTEM_BY_ID } from '../categories/category-resolver';
 import { LEGACY_CATEGORY_MAP } from '../categories/taxonomy.generated';
-import { istMonthOf, istMonthRange, isIncome, isSpend } from '../utils/ledger';
+import { istMonthOf, istMonthRange, isPersonalIncome, isPersonalSpend } from '../utils/ledger';
 import { carryInto, monthsBefore, safeToSpend } from './rollover';
 import { BillsService } from '../bills/bills.service';
 
@@ -131,7 +131,7 @@ export class BudgetsService {
     // Spend per parent category id (debits counted as spend only).
     const categorySpentMap = new Map<string, number>();
     for (const exp of expenses) {
-      if (!isSpend(exp)) continue;
+      if (!isPersonalSpend(exp)) continue;
       const key = exp.categoryId ?? resolveLegacyCategory(exp.category).categoryId;
       categorySpentMap.set(key, (categorySpentMap.get(key) ?? 0) + exp.amount);
     }
@@ -186,8 +186,8 @@ export class BudgetsService {
     });
 
     // Safe to spend: what's left across budgets, and from income after bills.
-    const monthSpent = expenses.filter(isSpend).reduce((t, e) => t + e.amount, 0);
-    const monthIncome = expenses.filter(isIncome).reduce((t, e) => t - e.amount, 0);
+    const monthSpent = expenses.filter(isPersonalSpend).reduce((t, e) => t + e.amount, 0);
+    const monthIncome = expenses.filter(isPersonalIncome).reduce((t, e) => t - e.amount, 0);
     const monthEnd = istMonthRange(month).end;
     const now = new Date();
     const isCurrent = month === istMonthOf(now);
@@ -221,7 +221,7 @@ export class BudgetsService {
     });
     const out = new Map<string, number>();
     for (const e of rows) {
-      if (!isSpend(e)) continue;
+      if (!isPersonalSpend(e)) continue;
       const cat = (e.categoryId ?? resolveLegacyCategory(e.category).categoryId).split('.')[0];
       const key = `${istMonthOf(e.date)}|${cat}`;
       out.set(key, (out.get(key) ?? 0) + e.amount);

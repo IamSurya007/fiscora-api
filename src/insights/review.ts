@@ -1,4 +1,4 @@
-import { isIncome, isSpend, LedgerEntry } from '../utils/ledger';
+import { isPersonalIncome, isPersonalSpend, LedgerEntry } from '../utils/ledger';
 
 export interface ReviewTx extends LedgerEntry {
   id: string;
@@ -12,14 +12,14 @@ const pct = (now: number, before: number) => (before > 0 ? Math.round(((now - be
 const parentOf = (t: LedgerEntry) => (t.categoryId ?? 'misc').split('.')[0];
 
 function totals(txs: ReviewTx[]) {
-  const spent = txs.filter(isSpend).reduce((s, t) => s + t.amount, 0);
-  const income = txs.filter(isIncome).reduce((s, t) => s - t.amount, 0);
+  const spent = txs.filter(isPersonalSpend).reduce((s, t) => s + t.amount, 0);
+  const income = txs.filter(isPersonalIncome).reduce((s, t) => s - t.amount, 0);
   return { spent: round(spent), income: round(income) };
 }
 
 function byCategory(txs: ReviewTx[]) {
   const m = new Map<string, number>();
-  for (const t of txs.filter(isSpend)) m.set(parentOf(t), (m.get(parentOf(t)) ?? 0) + t.amount);
+  for (const t of txs.filter(isPersonalSpend)) m.set(parentOf(t), (m.get(parentOf(t)) ?? 0) + t.amount);
   return m;
 }
 
@@ -48,7 +48,7 @@ export function monthReview(
     .sort((a, b) => b.spent - a.spent);
 
   const biggest = current
-    .filter(isSpend)
+    .filter(isPersonalSpend)
     .sort((a, b) => b.amount - a.amount)
     .slice(0, 5)
     .map((t) => ({
