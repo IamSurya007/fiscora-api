@@ -2,6 +2,7 @@ import { Account } from '../database/entities/account.entity';
 import { Investment } from '../database/entities/investment.entity';
 import { Loan } from '../database/entities/loan.entity';
 import { AccountType, LoanStatus, LoanType } from '../database/enums';
+import { outstanding } from '../loans/emi';
 
 export type AssetKind = 'bank' | 'cash' | 'wallet' | 'other';
 
@@ -50,8 +51,10 @@ export function investmentValue(inv: Pick<Investment, 'principal'> & { currentVa
 }
 
 /** Outstanding amount of a loan, matching LoansService.getSummary (total of non-paid loans). */
-export function loanOutstanding(loan: Pick<Loan, 'total' | 'status'>): number {
-  return loan.status === LoanStatus.PAID ? 0 : loan.total ?? 0;
+export function loanOutstanding(loan: Pick<Loan, 'total' | 'status'> & Record<string, any>): number {
+  if (loan.status === LoanStatus.PAID) return 0;
+  // Subtracts recorded repayments (and uses the EMI schedule for EMI loans).
+  return Math.max(0, outstanding(loan as any));
 }
 
 function assetKind(type: string): AssetKind {
