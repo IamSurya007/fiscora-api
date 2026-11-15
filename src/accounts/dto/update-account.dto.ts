@@ -1,4 +1,4 @@
-import { IsEnum, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString, MaxLength, Min, IsInt, Max } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { AccountType } from '../../database/enums';
 
@@ -30,4 +30,16 @@ export class UpdateAccountDto {
   @IsOptional()
   @IsNumber()
   colorValue?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  statementDay?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  dueDay?: number;
 }

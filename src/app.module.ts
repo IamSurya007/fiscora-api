@@ -20,6 +20,7 @@ import { RagModule } from './rag/rag.module';
 import { CategoriesModule } from './categories/categories.module';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
+import { BillsModule } from './bills/bills.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { ThrottlerGuard } from '@nestjs/throttler';
     SyncModule,
     RagModule,
     CategoriesModule,
+    BillsModule,
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

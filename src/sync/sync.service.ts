@@ -115,6 +115,8 @@ export class SyncService {
             : {}),
           creditLimit: typeof payload.creditLimit === 'string' ? parseFloat(payload.creditLimit) : (payload.creditLimit || 0),
           accountNumberLast4: payload.accountNumberLast4 || null,
+          statementDay: payload.statementDay ?? null,
+          dueDay: payload.dueDay ?? null,
           colorValue: typeof payload.colorValue === 'string' ? parseInt(payload.colorValue, 10) : (payload.colorValue !== undefined ? payload.colorValue : 4280962800),
           createdAt: payload.createdAt ? new Date(payload.createdAt) : undefined,
         };
@@ -213,6 +215,8 @@ export class SyncService {
           openingBalance: record.openingBalance,
           creditLimit: record.creditLimit,
           accountNumberLast4: record.accountNumberLast4 || '',
+          statementDay: record.statementDay ?? null,
+          dueDay: record.dueDay ?? null,
           colorValue: record.colorValue,
           createdAt: iso(record.createdAt),
         };

@@ -42,6 +42,14 @@ export class Account {
   @Column({ type: 'varchar', nullable: true })
   accountNumberLast4: string | null;
 
+  /** Credit cards: day of month the statement is generated (1-31). */
+  @Column({ type: 'int', nullable: true })
+  statementDay: number | null;
+
+  /** Credit cards: day of month the payment is due (1-31). */
+  @Column({ type: 'int', nullable: true })
+  dueDay: number | null;
+
   @Column({ type: 'bigint', default: 4280962800 })
   colorValue: number;
 
