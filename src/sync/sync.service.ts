@@ -114,6 +114,9 @@ export class SyncService {
             ? { spreadMonths: Math.min(24, Math.max(1, parseInt(payload.spreadMonths, 10) || 1)) }
             : {}),
           ...(payload.scope === 'business' || payload.scope === 'personal' ? { scope: payload.scope } : {}),
+          ...(payload.tdsAmount !== undefined
+            ? { tdsAmount: payload.tdsAmount === null || payload.tdsAmount === '' ? null : Number(payload.tdsAmount) || null }
+            : {}),
           isCountedAsSpend,
           createdAt: payload.createdAt ? new Date(payload.createdAt) : undefined,
         };
@@ -238,6 +241,7 @@ export class SyncService {
           splits: record.splits ?? [],
           spreadMonths: record.spreadMonths ?? 1,
           scope: record.scope ?? 'personal',
+          tdsAmount: record.tdsAmount ?? null,
           isCountedAsSpend: record.isCountedAsSpend ?? true,
           createdAt: iso(record.createdAt),
         };

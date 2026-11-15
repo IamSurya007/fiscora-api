@@ -84,6 +84,10 @@ export class Expense {
   @Column({ type: 'varchar', default: 'personal' })
   scope: string;
 
+  /** TDS deducted by the payer on a business receipt (e.g. 10% under 194J), in rupees. */
+  @Column({ type: 'float', nullable: true })
+  tdsAmount: number | null;
+
   /** Auto-captured (e.g. from SMS) and not yet confirmed by the user. */
   @Column({ type: 'boolean', default: false })
   needsReview: boolean;

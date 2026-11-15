@@ -269,6 +269,7 @@ export class ExpensesService {
       expense.splits = dto.splits.length ? dto.splits : null;
     }
     if (dto.spreadMonths !== undefined) expense.spreadMonths = dto.spreadMonths;
+    if (dto.tdsAmount !== undefined) expense.tdsAmount = dto.tdsAmount;
     if (dto.needsReview !== undefined) expense.needsReview = dto.needsReview;
     // Editing a captured transaction is reviewing it.
     else if (expense.needsReview) expense.needsReview = false;

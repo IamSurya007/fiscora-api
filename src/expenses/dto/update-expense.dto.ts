@@ -101,4 +101,10 @@ export class UpdateExpenseDto {
   @Min(1)
   @Max(24)
   spreadMonths?: number;
+
+  /** TDS the payer deducted on this business receipt, in rupees (optional). */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  tdsAmount?: number | null;
 }
